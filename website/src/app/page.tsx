@@ -54,9 +54,5 @@ function Dashboard() {
 }
 
 export default function Home() {
-  return (
-    <AuthProvider>
-      <Dashboard />
-    </AuthProvider>
-  );
+  return <Dashboard />;
 }

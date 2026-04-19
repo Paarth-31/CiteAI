@@ -1,7 +1,7 @@
 "use client"
 
 import { useRef, useState } from "react";
-import { useAuth } from "./contexts/AuthContext";
+import { useAuth } from '../components/contexts/AuthContext';
 
 interface UploadBoxProps {
   onUploadComplete: (dummyData: any) => void;

@@ -1,7 +1,7 @@
 "use client"
 
 import React from 'react';
-import { useAuth } from './contexts/AuthContext';
+import { useAuth } from '../components/contexts/AuthContext';
 
 export default function AuthModal() {
   const { user, login, logout } = useAuth();

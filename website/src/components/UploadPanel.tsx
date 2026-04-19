@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useRef, useState } from 'react';
-import { useAuth } from './contexts/AuthContext';
+import { useAuth } from '../components/contexts/AuthContext';
 
 interface UploadPanelProps {
   onAnalysisComplete: (dummyData: any) => void;

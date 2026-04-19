@@ -27,7 +27,7 @@ export default function CitationGraph({ data }: { data: any }) {
           <ul className="space-y-2">
             {data.edges.map((edge: any, i: number) => (
               <li key={i} className="bg-gray-50 px-3 py-2 rounded border border-gray-100 text-sm text-gray-600">
-                Node {edge.source} $\rightarrow$ Node {edge.target}
+                Node {edge.source} → Node {edge.target}
               </li>
             ))}
           </ul>
