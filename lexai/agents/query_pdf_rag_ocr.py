@@ -12,8 +12,12 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from .ocr_agent import process_pdf  # Use OCR agent to extract text
 
 import hashlib
-indexpath = "faiss_index/"
-hashpath = "faiss_index/doc_hash.txt"
+
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+indexpath = f"{BASE_DIR}/faiss_index/"
+hashpath = f"{BASE_DIR}/faiss_index/doc_hash.txt"
 
 # ===========================================
 # 1. Model Setup
