@@ -8,7 +8,9 @@ LecAI baseline dataset, including citation graph loading and hybrid retrieval.
 import os
 import json
 from lexai.agents import InLegalBERTExternalAgent
+from pathlib import Path
 
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 def load_lecai_full_dataset_example():
     """Example: Load full LecAI dataset with citation graph."""
@@ -27,7 +29,7 @@ def load_lecai_full_dataset_example():
     )
     
     # Paths to LecAI dataset
-    base_path = "/home/anand/eudia/LecNet_baseline_models_code_and_README/LecNet_baseline_models_code_and_README"
+    base_path = f"{BASE_DIR}/LecNet_baseline_models_code_and_README/LecNet_baseline_models_code_and_README"
     
     # Option 1: Load with case mapping only (no full text)
     print("\n2. Loading LecAI dataset (first 500 cases for demo)...")
