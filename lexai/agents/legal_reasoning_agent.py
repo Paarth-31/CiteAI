@@ -1,20 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 """Legal Reasoning Agent for generating structured multi-aspect analysis.
 
 This agent receives a target case and retrieved precedent cases from the
