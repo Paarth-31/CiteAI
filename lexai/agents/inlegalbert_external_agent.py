@@ -21,6 +21,11 @@ import pandas as pd
 import networkx as nx
 from collections import defaultdict
 
+from pathlib import Path
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+
 try:
     from transformers import AutoTokenizer, AutoModel
     import torch
@@ -688,7 +693,7 @@ def demo_inlegalbert_agent():
     print("\n2. Loading LecAI dataset...")
     
     # Path to LecAI dataset
-    base_path = "/home/anand/eudia/LecNet_baseline_models_code_and_README/LecNet_baseline_models_code_and_README"
+    base_path = f"{BASE_DIR}/LecNet_baseline_models_code_and_README/LecNet_baseline_models_code_and_README"
     case_mapping_path = os.path.join(base_path, "file_Case_id_and_name.csv")
     
     # Load first 100 cases for demo
