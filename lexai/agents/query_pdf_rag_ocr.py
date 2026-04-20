@@ -11,6 +11,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from .ocr_agent import process_pdf  # Use OCR agent to extract text
 
+indexpath = "faiss_index/"
 
 # ===========================================
 # 1. Model Setup
@@ -111,7 +112,14 @@ def query_rag_from_text(document_text: str, query: str, title: str = "Document")
         }
 
     try:
-        vectordb = build_faiss_index(document_text)
+        #originally rebuilt each time, fixed saving
+        if os.path.exists(indexpath):
+            vectordb = FAISS.load_local(index_path,embedding_model,allow_dangerous_deserialization=True)
+        else:
+            vectordb = build_faiss_index(document_text)
+            vectordb.save_local(indexpath)
+        
+        #NOTE: ON DOCUMENT CHANGE, WILL HAVE TO REBUILD THE VECTORDB.
         answer = query_rag(vectordb, query)
     except ValueError:
         answer = "No relevant passages were found to answer this question."
