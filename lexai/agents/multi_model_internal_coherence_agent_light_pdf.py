@@ -23,14 +23,14 @@ from langchain_community.tools import DuckDuckGoSearchRun
 # 1. Lightweight Classification & NLI
 # -----------------------------
 # Use a smaller and faster NLI model for zero-shot tasks
-extractor = pipeline(
-    "zero-shot-classification",
-    model="facebook/bart-large-mnli",     # moderate accuracy, faster than distilbart-mnli
-    device=-1                            # ensure CPU
-)
+#extractor = pipeline(
+#    "zero-shot-classification",
+#    model="facebook/bart-large-mnli",     # moderate accuracy, faster than distilbart-mnli
+#    device=-1                            # ensure CPU
+#)
 
 # Or for extreme speed (sacrifices a bit of accuracy):
-# extractor = pipeline("zero-shot-classification", model="typeform/distilbert-base-uncased-mnli", device=-1)
+extractor = pipeline("zero-shot-classification", model="typeform/distilbert-base-uncased-mnli", device=-1)
 
 # -----------------------------
 # 2. Tiny Embedding Model
@@ -102,8 +102,8 @@ def extract_claims(text: str) -> List[str]:
     sentences = re.split(r'(?<=[\.\n])\s+', text)
     claims = []
     
-    # Process only first 100 sentences to avoid long processing
-    for s in sentences[:100]:
+    LIMIT=1000  
+    for s in sentences[:LIMIT]:
         if not s.strip():
             continue
         res = extractor(s, candidate_labels=["legal argument", "evidence", "factual statement"], multi_label=False)
