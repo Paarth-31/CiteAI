@@ -11,7 +11,9 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from .ocr_agent import process_pdf  # Use OCR agent to extract text
 
+import hashlib
 indexpath = "faiss_index/"
+hashpath = "faiss_index/doc_hash.txt"
 
 # ===========================================
 # 1. Model Setup
@@ -112,14 +114,25 @@ def query_rag_from_text(document_text: str, query: str, title: str = "Document")
         }
 
     try:
-        #originally rebuilt each time, fixed saving
-        if os.path.exists(indexpath):
-            vectordb = FAISS.load_local(index_path,embedding_model,allow_dangerous_deserialization=True)
+        #FIX1 was building the db from scratch each time. Now checks local cache.
+        current_hash = hashlib.md5(document_text.encode()).hexdigest()
+
+        index_exists = os.path.exists(index_path) and os.path.exists(hash_path)
+        if index_exists:
+            with open(hash_path, "r") as f:
+                saved_hash = f.read().strip()
+            index_exists = saved_hash == current_hash
+
+        if index_exists:
+            vectordb = FAISS.load_local(index_path, embedding_model, allow_dangerous_deserialization=True)
         else:
             vectordb = build_faiss_index(document_text)
-            vectordb.save_local(indexpath)
-        
+            vectordb.save_local(index_path)
+            with open(hash_path, "w") as f:
+                f.write(current_hash)
+       
         #NOTE: ON DOCUMENT CHANGE, WILL HAVE TO REBUILD THE VECTORDB.
+        #FIX2: Now hashes documents, automatically updates the db if hash don't match.
         answer = query_rag(vectordb, query)
     except ValueError:
         answer = "No relevant passages were found to answer this question."
