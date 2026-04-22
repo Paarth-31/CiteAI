@@ -1,7 +1,6 @@
 """Citation routes scoped to a document."""
 from __future__ import annotations
 
-from datetime import datetime
 from http import HTTPStatus
 
 from flask import Blueprint, jsonify, request
@@ -15,138 +14,159 @@ bp = Blueprint("citations", __name__, url_prefix="/api/documents/<document_id>/c
 
 
 def _get_document_or_404(document_id: str) -> Document | None:
-    return Document.query.filter_by(id=document_id, user_id=current_user.id).one_or_none()
+    return Document.query.filter_by(
+        id=document_id, user_id=current_user.id
+    ).one_or_none()
 
 
 @bp.get("")
 @jwt_required()
 def list_citations(document_id: str):
-    document = _get_document_or_404(document_id)
-    if document is None:
+    doc = _get_document_or_404(document_id)
+    if doc is None:
         return jsonify({"error": "Document not found"}), HTTPStatus.NOT_FOUND
 
-    citations = Citation.query.filter_by(document_id=document.id).order_by(Citation.year.desc()).all()
+    # Allow filtering by source model (legalbert / biobert)
+    source_model = request.args.get("model")
+    query = Citation.query.filter_by(document_id=doc.id)
+    if source_model:
+        query = query.filter_by(source_model=source_model)
+
+    citations = query.order_by(
+        Citation.trs_score.desc().nullslast(),
+        Citation.year.desc().nullslast()
+    ).all()
     return jsonify([citation_to_dict(c) for c in citations])
 
 
 @bp.post("")
 @jwt_required()
 def create_citation(document_id: str):
-    document = _get_document_or_404(document_id)
-    if document is None:
+    doc = _get_document_or_404(document_id)
+    if doc is None:
         return jsonify({"error": "Document not found"}), HTTPStatus.NOT_FOUND
 
     payload = request.get_json(silent=True) or {}
 
     title = (payload.get("title") or "").strip()
-    x = payload.get("x")
-    y = payload.get("y")
-    count = payload.get("citations")
-    year = payload.get("year")
-
     if not title:
         return jsonify({"error": "Title is required"}), HTTPStatus.BAD_REQUEST
+
     try:
-        x_value = float(x)
-        y_value = float(y)
+        x_val    = float(payload.get("x", 50))
+        y_val    = float(payload.get("y", 50))
     except (TypeError, ValueError):
         return jsonify({"error": "x and y must be numeric"}), HTTPStatus.BAD_REQUEST
-    if not (0 <= x_value <= 100 and 0 <= y_value <= 100):
+    if not (0 <= x_val <= 100 and 0 <= y_val <= 100):
         return jsonify({"error": "x and y must be between 0 and 100"}), HTTPStatus.BAD_REQUEST
 
     try:
-        citations_value = int(count)
-        year_value = int(year)
+        count = int(payload.get("citations", 0))
+        year  = int(payload.get("year", 0))
     except (TypeError, ValueError):
         return jsonify({"error": "citations and year must be integers"}), HTTPStatus.BAD_REQUEST
-    if citations_value < 0:
+    if count < 0:
         return jsonify({"error": "citations must be non-negative"}), HTTPStatus.BAD_REQUEST
 
+    # Optional TRS/inference fields
+    trs_score        = payload.get("trsScore")
+    similarity_score = payload.get("similarityScore")
+    evidence_span    = payload.get("evidenceSpan")
+    source_model     = payload.get("sourceModel")
+
     citation = Citation(
-        document_id=document.id,
-        title=title,
-        x=x_value,
-        y=y_value,
-        citations=citations_value,
-        year=year_value,
+        document_id      = doc.id,
+        title            = title,
+        x                = x_val,
+        y                = y_val,
+        citations        = count,
+        year             = year,
+        trs_score        = float(trs_score) if trs_score is not None else None,
+        similarity_score = float(similarity_score) if similarity_score is not None else None,
+        evidence_span    = evidence_span,
+        source_model     = source_model,
     )
     db.session.add(citation)
     db.session.commit()
-
     return jsonify({"citation": citation_to_dict(citation)}), HTTPStatus.CREATED
-
-
-@bp.delete("/<citation_id>")
-@jwt_required()
-def delete_citation(document_id: str, citation_id: str):
-    document = _get_document_or_404(document_id)
-    if document is None:
-        return jsonify({"error": "Document not found"}), HTTPStatus.NOT_FOUND
-
-    citation = Citation.query.filter_by(id=citation_id, document_id=document.id).one_or_none()
-    if citation is None:
-        return jsonify({"error": "Citation not found"}), HTTPStatus.NOT_FOUND
-
-    db.session.delete(citation)
-    db.session.commit()
-
-    return jsonify({"success": True}), HTTPStatus.OK
 
 
 @bp.put("/<citation_id>")
 @jwt_required()
 def update_citation(document_id: str, citation_id: str):
-    document = _get_document_or_404(document_id)
-    if document is None:
+    doc = _get_document_or_404(document_id)
+    if doc is None:
         return jsonify({"error": "Document not found"}), HTTPStatus.NOT_FOUND
 
-    citation = Citation.query.filter_by(id=citation_id, document_id=document.id).one_or_none()
+    citation = Citation.query.filter_by(
+        id=citation_id, document_id=doc.id
+    ).one_or_none()
     if citation is None:
         return jsonify({"error": "Citation not found"}), HTTPStatus.NOT_FOUND
 
     payload = request.get_json(silent=True) or {}
 
     if "title" in payload:
-        title = (payload.get("title") or "").strip()
-        if not title:
+        t = (payload["title"] or "").strip()
+        if not t:
             return jsonify({"error": "Title cannot be empty"}), HTTPStatus.BAD_REQUEST
-        citation.title = title
+        citation.title = t
 
-    if "x" in payload:
-        try:
-            x_value = float(payload.get("x"))
-        except (TypeError, ValueError):
-            return jsonify({"error": "x must be numeric"}), HTTPStatus.BAD_REQUEST
-        if not 0 <= x_value <= 100:
-            return jsonify({"error": "x must be between 0 and 100"}), HTTPStatus.BAD_REQUEST
-        citation.x = x_value
-
-    if "y" in payload:
-        try:
-            y_value = float(payload.get("y"))
-        except (TypeError, ValueError):
-            return jsonify({"error": "y must be numeric"}), HTTPStatus.BAD_REQUEST
-        if not 0 <= y_value <= 100:
-            return jsonify({"error": "y must be between 0 and 100"}), HTTPStatus.BAD_REQUEST
-        citation.y = y_value
+    for float_field in ("x", "y"):
+        if float_field in payload:
+            try:
+                val = float(payload[float_field])
+            except (TypeError, ValueError):
+                return jsonify({"error": f"{float_field} must be numeric"}), HTTPStatus.BAD_REQUEST
+            if not 0 <= val <= 100:
+                return jsonify({"error": f"{float_field} must be between 0 and 100"}), HTTPStatus.BAD_REQUEST
+            setattr(citation, float_field, val)
 
     if "citations" in payload:
         try:
-            citation_count = int(payload.get("citations"))
+            c = int(payload["citations"])
         except (TypeError, ValueError):
             return jsonify({"error": "citations must be an integer"}), HTTPStatus.BAD_REQUEST
-        if citation_count < 0:
+        if c < 0:
             return jsonify({"error": "citations must be non-negative"}), HTTPStatus.BAD_REQUEST
-        citation.citations = citation_count
+        citation.citations = c
 
     if "year" in payload:
         try:
-            year_value = int(payload.get("year"))
+            citation.year = int(payload["year"])
         except (TypeError, ValueError):
             return jsonify({"error": "year must be an integer"}), HTTPStatus.BAD_REQUEST
-        citation.year = year_value
 
-    citation.updated_at = datetime.utcnow()
+    for opt_field in ("trsScore", "similarityScore"):
+        model_field = "trs_score" if opt_field == "trsScore" else "similarity_score"
+        if opt_field in payload:
+            try:
+                setattr(citation, model_field, float(payload[opt_field]))
+            except (TypeError, ValueError):
+                return jsonify({"error": f"{opt_field} must be numeric"}), HTTPStatus.BAD_REQUEST
+
+    if "evidenceSpan" in payload:
+        citation.evidence_span = payload["evidenceSpan"]
+    if "sourceModel" in payload:
+        citation.source_model = payload["sourceModel"]
+
     db.session.commit()
-
     return jsonify({"citation": citation_to_dict(citation)}), HTTPStatus.OK
+
+
+@bp.delete("/<citation_id>")
+@jwt_required()
+def delete_citation(document_id: str, citation_id: str):
+    doc = _get_document_or_404(document_id)
+    if doc is None:
+        return jsonify({"error": "Document not found"}), HTTPStatus.NOT_FOUND
+
+    citation = Citation.query.filter_by(
+        id=citation_id, document_id=doc.id
+    ).one_or_none()
+    if citation is None:
+        return jsonify({"error": "Citation not found"}), HTTPStatus.NOT_FOUND
+
+    db.session.delete(citation)
+    db.session.commit()
+    return jsonify({"success": True}), HTTPStatus.OK
