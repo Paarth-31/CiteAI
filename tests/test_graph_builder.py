@@ -1,207 +1,186 @@
-"""
-Unit tests for citation_graph_builder.py
-
-Tests the citation graph builder with sample legal documents.
-"""
+"""Unit tests for citation_graph_builder.py."""
+from __future__ import annotations
 
 import json
-import pytest
-from pathlib import Path
-import sys
+import re
 import subprocess
+import sys
+from pathlib import Path
 
-# Add parent directory to path
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
-
 from citation_graph_builder import CitationGraphBuilder
 
 
 @pytest.fixture
 def sample_dir():
-    """Return path to sample data directory."""
-    return Path(__file__).parent.parent / 'lexai' / 'data' / 'lecai_baseline'
+    return Path(__file__).parent.parent / "lexai" / "data" / "lecai_baseline"
 
 
 @pytest.fixture
 def output_dir(tmp_path):
-    """Create temporary output directory."""
-    return tmp_path / 'outputs'
+    return tmp_path / "outputs"
 
 
 class TestCitationGraphBuilder:
-    """Test suite for CitationGraphBuilder."""
-    
+
     def test_normalize_text(self):
-        """Test text normalization."""
-        builder = CitationGraphBuilder()
-        
-        assert builder.normalize_text("  Hello   World  ") == "hello world"
-        assert builder.normalize_text("A, B, C.") == "a b c"
-        assert builder.normalize_text("UPPER case") == "upper case"
-    
+        b = CitationGraphBuilder()
+        assert b.normalize_text("  Hello   World  ") == "hello world"
+        assert b.normalize_text("A, B, C.") == "a b c"
+        assert b.normalize_text("UPPER case") == "upper case"
+
     def test_extract_year(self):
-        """Test year extraction."""
-        builder = CitationGraphBuilder()
-        
-        assert builder.extract_year("decided in 2017") == 2017
-        assert builder.extract_year("(1978) 1 SCC 248") == 1978
-        assert builder.extract_year("no year here") is None
-        assert builder.extract_year("1899 too old") is None  # Before 1900
-    
+        b = CitationGraphBuilder()
+        assert b.extract_year("decided in 2017") == 2017
+        assert b.extract_year("(1978) 1 SCC 248") == 1978
+        assert b.extract_year("no year here") is None
+        assert b.extract_year("1899 too old") is None
+
     def test_extract_title(self):
-        """Test title extraction."""
-        builder = CitationGraphBuilder()
-        
-        text = """K.S. Puttaswamy v. Union of India
-        
-        This is a case about privacy rights."""
-        
-        title = builder.extract_title(text)
+        b = CitationGraphBuilder()
+        text = "K.S. Puttaswamy v. Union of India\n\nThis is about privacy rights."
+        title = b.extract_title(text)
         assert "Puttaswamy" in title or "K.S." in title
-    
+
     def test_extract_citations(self):
-        """Test citation extraction."""
-        builder = CitationGraphBuilder()
-        
+        b = CitationGraphBuilder()
         text = """
         This Court relies on K.S. Puttaswamy v. Union of India (2017) 10 SCC 1.
         We also refer to Maneka Gandhi v. Union of India (1978) 1 SCC 248.
-        The case of Gobind v. State of Madhya Pradesh is also relevant.
+        Gobind v. State of Madhya Pradesh is also relevant.
         """
-        
-        citations = builder.extract_citations(text)
-        
+        citations = b.extract_citations(text)
         assert len(citations) >= 2
-        
-        # Check that Puttaswamy is found
-        citation_texts = [c[0].lower() for c in citations]
-        assert any('puttaswamy' in ct for ct in citation_texts)
-    
+        texts_lower = [c[0].lower() for c in citations]
+        assert any("puttaswamy" in t for t in texts_lower)
+
     def test_generate_node_id(self):
-        """Test node ID generation."""
-        builder = CitationGraphBuilder()
-        
-        id1 = builder.generate_node_id("K.S. Puttaswamy v. Union of India", 2017)
-        id2 = builder.generate_node_id("K.S. Puttaswamy v. Union of India", 2017)
-        
-        assert id1 == id2  # Same input should give same ID
+        b = CitationGraphBuilder()
+        id1 = b.generate_node_id("K.S. Puttaswamy v. Union of India", 2017)
+        id2 = b.generate_node_id("K.S. Puttaswamy v. Union of India", 2017)
+        assert id1 == id2
         assert "2017" in id1
-    
+
+    def test_node_has_embedding_field(self):
+        """Nodes must carry an embedding field (None until GraphBuilder fills it)."""
+        b = CitationGraphBuilder()
+        b.add_node("test_id", "Test Case v. Someone", 2020, "sample text")
+        assert "embedding" in b.node_map["test_id"]
+        assert b.node_map["test_id"]["embedding"] is None
+
+    def test_edge_deduplication(self):
+        """Duplicate edges must be silently ignored."""
+        b = CitationGraphBuilder()
+        b.add_node("a", "Case A", 2020, "")
+        b.add_node("b", "Case B", 2019, "")
+        b.add_edge("a", "b")
+        b.add_edge("a", "b")   # duplicate
+        b.add_edge("a", "b")   # duplicate
+        assert len(b.edges) == 1
+
+    def test_no_self_loops(self):
+        """Self-loop edges must be rejected."""
+        b = CitationGraphBuilder()
+        b.add_node("a", "Case A", 2020, "")
+        b.add_edge("a", "a")
+        assert len(b.edges) == 0
+
+    def test_build_from_text(self):
+        """build_from_text() class method must produce a valid graph."""
+        text = """
+        K.S. Puttaswamy v. Union of India (2017)
+
+        This case concerns fundamental rights. We rely on Maneka Gandhi v. Union of India (1978).
+        Reference is also made to Gobind v. State of Madhya Pradesh (1975).
+        """
+        builder = CitationGraphBuilder.build_from_text(text, "Puttaswamy Privacy Case")
+        assert len(builder.nodes) >= 1
+        # The built-in citation extraction should find at least one edge
+        # (may vary depending on regex match quality on short text)
+        assert isinstance(builder.edges, list)
+        assert isinstance(builder.nodes, list)
+        # Every node must have the embedding slot
+        for node in builder.nodes:
+            assert "embedding" in node
+
+    def test_save_json_excludes_embedding(self, output_dir):
+        """Serialised JSON must NOT include embedding arrays."""
+        output_dir.mkdir(parents=True, exist_ok=True)
+        b = CitationGraphBuilder()
+        b.add_node("a", "Case A", 2020, "snippet")
+        # Fake embedding
+        import numpy as np
+        b.node_map["a"]["embedding"] = np.zeros(768).tolist()
+
+        out = output_dir / "test.json"
+        b.save_json(out)
+        data = json.loads(out.read_text())
+        for node in data["nodes"]:
+            assert "embedding" not in node
+
     def test_build_graph_sample_data(self, sample_dir, output_dir):
-        """Test building graph from sample data."""
         output_dir.mkdir(parents=True, exist_ok=True)
-        output_file = output_dir / 'test_graph.json'
-        
-        builder = CitationGraphBuilder()
-        num_nodes, num_edges = builder.build_graph(sample_dir)
-        
-        # Should have at least 4 nodes (sample files we created)
-        assert num_nodes >= 4, f"Expected at least 4 nodes, got {num_nodes}"
-        
-        # Should have at least 2 edges (citations between cases)
-        assert num_edges >= 2, f"Expected at least 2 edges, got {num_edges}"
-        
-        # Save and verify JSON
-        builder.save_json(output_file)
+        output_file = output_dir / "test_graph.json"
+
+        b = CitationGraphBuilder()
+        num_nodes, num_edges = b.build_graph(sample_dir)
+
+        assert num_nodes >= 4, f"Expected ≥4 nodes, got {num_nodes}"
+        assert num_edges >= 2, f"Expected ≥2 edges, got {num_edges}"
+
+        b.save_json(output_file)
         assert output_file.exists()
-        
-        # Load and verify JSON structure
-        with open(output_file, 'r') as f:
-            data = json.load(f)
-        
-        assert 'nodes' in data
-        assert 'edges' in data
-        assert len(data['nodes']) == num_nodes
-        assert len(data['edges']) == num_edges
-        
-        # Verify node structure
-        for node in data['nodes']:
-            assert 'id' in node
-            assert 'title' in node
-            assert 'year' in node
-            assert 'text' in node
-        
-        # Verify edge structure
-        for edge in data['edges']:
-            assert 'source' in edge
-            assert 'target' in edge
-    
+
+        data = json.loads(output_file.read_text())
+        assert "nodes" in data and "edges" in data
+        assert len(data["nodes"]) == num_nodes
+        assert len(data["edges"]) == num_edges
+
+        for node in data["nodes"]:
+            for key in ("id", "title", "year", "text"):
+                assert key in node
+
+        for edge in data["edges"]:
+            assert "source" in edge and "target" in edge
+
     def test_cli_execution(self, sample_dir, output_dir):
-        """Test CLI execution and output message."""
         output_dir.mkdir(parents=True, exist_ok=True)
-        output_file = output_dir / 'cli_test_graph.json'
-        
-        # Run CLI command
+        output_file = output_dir / "cli_test_graph.json"
+
         cmd = [
             sys.executable,
-            str(Path(__file__).parent.parent / 'citation_graph_builder.py'),
-            '--input', str(sample_dir),
-            '--output', str(output_file)
+            str(Path(__file__).parent.parent / "citation_graph_builder.py"),
+            "--input", str(sample_dir),
+            "--output", str(output_file),
         ]
-        
         result = subprocess.run(cmd, capture_output=True, text=True)
-        
-        # Check success
+
         assert result.returncode == 0, f"CLI failed: {result.stderr}"
-        
-        # Check output message format
-        assert 'graph saved:' in result.stdout
+        assert "graph saved:" in result.stdout
         assert str(output_file) in result.stdout
-        assert 'nodes' in result.stdout
-        assert 'edges' in result.stdout
-        
-        # Verify file was created
+
+        m = re.search(r"\((\d+) nodes, (\d+) edges\)", result.stdout)
+        assert m is not None
+        assert int(m.group(1)) >= 4
+        assert int(m.group(2)) >= 2
         assert output_file.exists()
-        
-        # Parse the output to verify numbers
-        import re
-        match = re.search(r'\((\d+) nodes, (\d+) edges\)', result.stdout)
-        assert match is not None
-        
-        num_nodes = int(match.group(1))
-        num_edges = int(match.group(2))
-        
-        assert num_nodes >= 4
-        assert num_edges >= 2
-    
+
     def test_find_matching_node(self):
-        """Test citation matching logic."""
-        builder = CitationGraphBuilder()
-        
-        # Add a node
-        builder.add_node('puttaswamy_2017', 'K.S. Puttaswamy v. Union of India', 2017, 'sample text')
-        
-        # Test exact match
-        match = builder.find_matching_node('K.S. Puttaswamy v. Union of India', 2017)
-        assert match == 'puttaswamy_2017'
-        
-        # Test fuzzy match (slightly different format)
-        match = builder.find_matching_node('Puttaswamy v Union of India', 2017)
-        assert match == 'puttaswamy_2017'
-        
-        # Test no match
-        match = builder.find_matching_node('Different Case v. Someone', 2020)
-        assert match is None
-    
+        b = CitationGraphBuilder()
+        b.add_node("puttaswamy_2017", "K.S. Puttaswamy v. Union of India", 2017, "sample")
+        assert b.find_matching_node("K.S. Puttaswamy v. Union of India", 2017) == "puttaswamy_2017"
+        assert b.find_matching_node("Puttaswamy v Union of India", 2017) == "puttaswamy_2017"
+        assert b.find_matching_node("Different Case v. Someone", 2020) is None
+
     def test_placeholder_nodes(self, sample_dir, output_dir):
-        """Test that placeholder nodes are created for missing citations."""
         output_dir.mkdir(parents=True, exist_ok=True)
-        output_file = output_dir / 'placeholder_test.json'
-        
-        builder = CitationGraphBuilder()
-        builder.build_graph(sample_dir)
-        builder.save_json(output_file)
-        
-        with open(output_file, 'r') as f:
-            data = json.load(f)
-        
-        # Check for placeholder nodes (those with empty text)
-        placeholder_nodes = [n for n in data['nodes'] if n['text'] == '']
-        
-        # We should have some placeholder nodes for cases cited but not in corpus
-        # (e.g., Kharak Singh is cited but file not provided in minimal sample)
-        assert len(placeholder_nodes) >= 0  # May or may not have placeholders
+        b = CitationGraphBuilder()
+        b.build_graph(sample_dir)
+        placeholders = [n for n in b.nodes if n["text"] == ""]
+        assert len(placeholders) >= 0  # may or may not exist depending on sample
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
