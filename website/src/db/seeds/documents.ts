@@ -1,5 +1,5 @@
-import { db } from '../index';
-import { documents } from '../schema';
+import { db } from '@/db';
+import { documents } from '@/db/schema';
 
 async function main() {
     const now = new Date();
@@ -38,9 +38,10 @@ async function main() {
     ];
 
     await db.insert(documents).values(sampleDocuments);
-    console.log('Documents seeder completed successfully');
+    
+    console.log('✅ Documents seeder completed successfully');
 }
 
 main().catch((error) => {
-    console.error('Seeder failed:', error);
+    console.error('❌ Seeder failed:', error);
 });
