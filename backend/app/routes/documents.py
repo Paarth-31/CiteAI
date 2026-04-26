@@ -30,7 +30,7 @@ _ALLOWED_MIME = {"application/pdf"}
 @bp.get("")
 @jwt_required()
 def list_documents():
-    query = Document.query.filter_by(user_id=current_user.id)
+    query = Document.query.filter_by(user_id=str(current_user.id))
 
     search = request.args.get("search", "").strip()
     if search:
@@ -119,7 +119,7 @@ def create_document():
 
     doc = Document(
         title=title, file_url=file_url,
-        file_size=file_size_val, user_id=current_user.id,
+        file_size=file_size_val, user_id=str(current_user.id),
     )
     db.session.add(doc)
     db.session.commit()
@@ -187,5 +187,5 @@ def delete_document(document_id: str):
 # ── Helper ────────────────────────────────────────────────────────────────────
 def _get_or_404(document_id: str):
     return Document.query.filter_by(
-        id=document_id, user_id=current_user.id
+        id=document_id, user_id=str(current_user.id)
     ).one_or_none()

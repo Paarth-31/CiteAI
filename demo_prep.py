@@ -24,11 +24,12 @@ import sys
 from pathlib import Path
 
 # Ensure project root is importable
-sys.path.insert(0, str(Path(__file__).parent))
-
-DATA_DIR       = Path("lexai/data/lecai_baseline")
-GRAPH_OUT      = Path("lexai/data/graphs/lecai_citation_graph.json")
-PROCESSED_DIR  = Path("lexai/data/processed")
+_ROOT = Path(__file__).parent
+sys.path.insert(0, str(_ROOT))
+sys.path.insert(0, str(_ROOT / "lexai"))      # ← fixes lexai import
+DATA_DIR      = Path("lexai/data/lecai_baseline")
+GRAPH_OUT     = Path("lexai/data/graphs/lecai_citation_graph.json")
+PROCESSED_DIR = Path("lexai/data/processed")
 
 def step1_build_citation_graph():
     print("\n" + "="*60)

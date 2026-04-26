@@ -20,7 +20,7 @@ bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
 @bp.post("/register")
 def register():
-    payload = request.get_json(silent=True) or {}
+    payload  = request.get_json(silent=True) or {}
     name     = (payload.get("name") or "").strip()
     email    = (payload.get("email") or "").strip().lower()
     password = payload.get("password") or ""
@@ -53,14 +53,19 @@ def login():
     if not user:
         return jsonify({"error": "Invalid credentials"}), HTTPStatus.UNAUTHORIZED
 
-    access_token  = create_access_token(identity=user.id)
-    refresh_token = create_refresh_token(identity=user.id)
+    # BUG FIX: user.id is a UUID object (not JSON-serialisable).
+    # Pass str(user.id) as the JWT identity so Flask-JWT can serialise it.
+    # The user_lookup_loader in extensions.py receives this string and does
+    # User.query.filter_by(id=identity) which PostgreSQL handles fine.
+    identity = str(user.id)
+    access_token = create_access_token(identity=str(identity))
+    refresh_token = create_refresh_token(identity=str(identity))
 
     return jsonify({
-        "user":         user_to_dict(user),
-        "accessToken":  access_token,
-        "refreshToken": refresh_token,
-    }), HTTPStatus.OK
+    "accessToken": access_token,
+    "refreshToken": refresh_token,
+    "user": user_to_dict(user)
+}), 200
 
 
 @bp.post("/refresh")

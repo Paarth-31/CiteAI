@@ -20,43 +20,32 @@ export default function AnalysisWorkspace({ selectedItems, onItemDeselect }: Ana
   const [results, setResults] = useState<any[]>([]);
 
   useEffect(() => {
-    if (selectedItems.length > 0) {
-      handleAnalyze();
-    } else {
-      setResults([]);
-      setLoading(false);
-    }
-  }, [selectedItems]);
+  if (selectedItems.length > 0) {
+    handleAnalyze();
+  } else {
+    setResults([]);
+  }
+}, [selectedItems]);
 
   const handleAnalyze = () => {
-    setLoading(true);
-    setTimeout(() => {
-      const mockResults = [
-        {
-          id: '1',
-          sourceTitle: 'System Architecture Guidelines (2024)',
-          metadata: {
-            year: 2024,
-            sourceType: 'Technical Spec',
-            references: 42,
-          },
-          risk: 'low' as const,
-          sentiment: 'positive' as const,
-          trs: 92,
-          explanation: 'This source provides strong infrastructural support for your query. The documentation aligns closely with the semantic content of your selected chunks.',
-          irac: {
-            issue: 'Whether the current deployment structure supports zero-downtime scaling.',
-            rule: 'According to Section 4.2, load balancers must be configured with health checks prior to traffic routing.',
-            application: 'The proposed architecture implements the required health checks and redundant routing.',
-            conclusion: 'The system meets the criteria for zero-downtime scaling validation.',
-          },
-        },
-      ];
-      
-      setResults(mockResults);
-      setLoading(false);
-    }, 2000);
-  };
+  setResults(
+    selectedItems.map(item => ({
+      id: item.id,
+      sourceTitle: item.title,
+      metadata: {
+        year: null,
+        sourceType: 'Citation Node',
+        references: 0,
+      },
+      risk: 'low' as const,
+      sentiment: 'neutral' as const,
+      trs: null,
+      explanation: `Selected citation node: "${item.title}". Switch to the Logic Analysis tab for the full coherence report on this document.`,
+      irac: null,
+    }))
+  );
+  setLoading(false);
+};
 
   const handleFeedback = (resultId: string, feedback: 'up' | 'down') => {
     console.log(`Feedback for result ${resultId}: ${feedback}`);

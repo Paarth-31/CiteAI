@@ -28,6 +28,9 @@ def _ensure_project_root() -> None:
     root_str = str(project_root)
     if root_str not in sys.path:
         sys.path.insert(0, root_str)
+    lexai_str = str(project_root / "lexai")
+    if lexai_str not in sys.path:
+        sys.path.insert(0, lexai_str)
 
 
 # ── Available models ──────────────────────────────────────────────────────────
@@ -66,7 +69,7 @@ def find_similar(document_id: str):
     POST /api/ocr/process/<id>) before calling this endpoint.
     """
     doc = Document.query.filter_by(
-        id=document_id, user_id=current_user.id
+        id=document_id, user_id=str(current_user.id)
     ).one_or_none()
     if doc is None:
         return jsonify({"error": "Document not found"}), HTTPStatus.NOT_FOUND

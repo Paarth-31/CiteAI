@@ -16,6 +16,9 @@ def _ensure_project_root() -> None:
     root_str = str(project_root)
     if root_str not in sys.path:
         sys.path.insert(0, root_str)
+    lexai_str = str(project_root / "lexai")
+    if lexai_str not in sys.path:
+        sys.path.insert(0, lexai_str)
 
 
 def generate_citation_graph(ocr_text: str, document_title: str) -> dict[str, Any]:

@@ -475,3 +475,45 @@ export async function apiAddMessage(
     body: JSON.stringify({ role, content }),
   });
 }
+
+
+// ── Search ──────────────────────────────────────────────────────────────────
+
+export interface SearchResult {
+  id: string;
+  slug?: string;
+  title: string;
+  type: 'baseline' | 'document';
+  snippet?: string;
+  stats?: Record<string, number>;
+  citations?: string[];
+  status?: string;
+}
+
+export async function apiGlobalSearch(q: string): Promise<{ results: SearchResult[]; count: number }> {
+  return apiFetch(`/api/search?q=${encodeURIComponent(q)}`);
+}
+
+export async function apiListBaselineCases(): Promise<{
+  id: string; slug: string; title: string; stats: Record<string, number>; keywords: string[];
+}[]> {
+  return apiFetch('/api/search/baseline');
+}
+
+export async function apiGetBaselineCase(slug: string) {
+  return apiFetch<{
+    id: string; slug: string; title: string; full_text: string;
+    citations: string[]; articles: string[]; keywords: string[]; stats: Record<string, number>;
+  }>(`/api/search/baseline/${slug}`);
+}
+
+export async function apiGetBaselineCitationNodes(slug: string) {
+  return apiFetch<{
+    nodes: CitationNode[]; edges: { source: string; target: string }[];
+    total_nodes: number; filtered_nodes: number; showing_top: number; has_more: boolean;
+  }>(`/api/search/baseline/${slug}/citation-nodes`);
+}
+
+interface CitationNode {
+  id: string; title: string; x: number; y: number; citations: number; year: number;
+}

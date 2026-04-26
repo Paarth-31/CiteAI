@@ -5,7 +5,9 @@ from ..models import User
 
 def user_to_dict(user: User) -> dict:
     return {
-        "id":        user.id,
+        # BUG FIX: user.id is a UUID object — must cast to str or
+        # jsonify() raises "Object of type UUID is not JSON serializable"
+        "id":        str(user.id),
         "name":      user.name,
         "email":     user.email,
         "createdAt": user.created_at.isoformat() if user.created_at else None,

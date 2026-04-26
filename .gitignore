@@ -1,46 +1,85 @@
-# Python
-*.py[cod]
+# ── Python / Flask backend ────────────────────────────────────────────────
 __pycache__/
+*.py[cod]
+*.pyo
+*.pyd
 *.so
 *.egg
 *.egg-info/
 dist/
 build/
 .eggs/
-.venv/
+.Python
+
+# Virtual environments
+myenv/
+myenv2/
 venv/
-ENV/
+env/
+.venv/
+.env/
 
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-*.cover
+# Flask / environment
+instance/
+.env
+.env.local
+.env.*.local
+*.cfg
+!setup.cfg
 
-# IDEs
+# Database
+*.db
+*.sqlite3
+
+# Uploads (user files — never commit)
+backend/uploads/
+backend/app/uploads/
+
+# Logs
+*.log
+flask_session/
+
+# ── Node / Next.js frontend ───────────────────────────────────────────────
+website/node_modules/
+website/.next/
+website/out/
+website/.turbo/
+website/.vercel/
+website/coverage/
+
+# Next.js build output
+.next/
+out/
+
+# ── IDE / OS ─────────────────────────────────────────────────────────────
 .vscode/
 .idea/
 *.swp
 *.swo
-*~
-
-# Data
-lexai/data/raw/*.pdf
-lexai/data/processed/
-*.h5
-*.pkl
-
-# Models
-models/
-checkpoints/
-
-# Logs
-*.log
-logs/
-
-# OS
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# Jupyter
-.ipynb_checkpoints/
+# ── Secrets / Keys ───────────────────────────────────────────────────────
+*.pem
+*.key
+*.cert
+secrets.json
+config.secret.*
+
+# ── ML Models / Large files ───────────────────────────────────────────────
+*.pt
+*.pth
+*.onnx
+*.bin
+*.h5
+models/
+lexai/models/
+
+# ── Misc ─────────────────────────────────────────────────────────────────
+.cache/
+tmp/
+temp/
+*.tmp
+*.bak
+visual-edits/

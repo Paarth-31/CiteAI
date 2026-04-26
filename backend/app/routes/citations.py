@@ -15,7 +15,7 @@ bp = Blueprint("citations", __name__, url_prefix="/api/documents/<document_id>/c
 
 def _get_document_or_404(document_id: str) -> Document | None:
     return Document.query.filter_by(
-        id=document_id, user_id=current_user.id
+        id=document_id, user_id=str(current_user.id)
     ).one_or_none()
 
 

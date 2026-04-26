@@ -17,7 +17,7 @@ def _doc_accessible(document_id: str | None) -> bool:
     if not document_id:
         return True
     return Document.query.filter_by(
-        id=document_id, user_id=current_user.id
+        id=document_id, user_id=str(current_user.id)
     ).one_or_none() is not None
 
 
@@ -25,7 +25,7 @@ def _doc_accessible(document_id: str | None) -> bool:
 @jwt_required()
 def list_chats():
     chats = (
-        Chat.query.filter_by(user_id=current_user.id)
+        Chat.query.filter_by(user_id=str(current_user.id))
         .order_by(Chat.updated_at.desc())
         .all()
     )
@@ -42,7 +42,7 @@ def create_chat():
     if not _doc_accessible(document_id):
         return jsonify({"error": "Document not found"}), HTTPStatus.NOT_FOUND
 
-    chat = Chat(title=title, user_id=current_user.id, document_id=document_id)
+    chat = Chat(title=title, user_id=str(current_user.id), document_id=document_id)
     db.session.add(chat)
     db.session.commit()
     return jsonify({"chat": chat_to_dict(chat)}), HTTPStatus.CREATED
@@ -51,7 +51,7 @@ def create_chat():
 @bp.get("/<chat_id>")
 @jwt_required()
 def get_chat(chat_id: str):
-    chat = Chat.query.filter_by(id=chat_id, user_id=current_user.id).one_or_none()
+    chat = Chat.query.filter_by(id=chat_id, user_id=str(current_user.id)).one_or_none()
     if chat is None:
         return jsonify({"error": "Chat not found"}), HTTPStatus.NOT_FOUND
     return jsonify({"chat": chat_to_dict(chat)})
@@ -60,7 +60,7 @@ def get_chat(chat_id: str):
 @bp.delete("/<chat_id>")
 @jwt_required()
 def delete_chat(chat_id: str):
-    chat = Chat.query.filter_by(id=chat_id, user_id=current_user.id).one_or_none()
+    chat = Chat.query.filter_by(id=chat_id, user_id=str(current_user.id)).one_or_none()
     if chat is None:
         return jsonify({"error": "Chat not found"}), HTTPStatus.NOT_FOUND
     db.session.delete(chat)
@@ -71,7 +71,7 @@ def delete_chat(chat_id: str):
 @bp.post("/<chat_id>/messages")
 @jwt_required()
 def add_message(chat_id: str):
-    chat = Chat.query.filter_by(id=chat_id, user_id=current_user.id).one_or_none()
+    chat = Chat.query.filter_by(id=chat_id, user_id=str(current_user.id)).one_or_none()
     if chat is None:
         return jsonify({"error": "Chat not found"}), HTTPStatus.NOT_FOUND
 

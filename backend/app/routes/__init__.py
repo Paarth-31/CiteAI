@@ -5,12 +5,13 @@ from flask import Flask
 
 
 def register_blueprints(app: Flask) -> None:
-    from .auth import bp as auth_bp
-    from .documents import bp as documents_bp
-    from .citations import bp as citations_bp
-    from .chats import bp as chats_bp
-    from .ocr import bp as ocr_bp
-    from .inference import bp as inference_bp
+    from .auth       import bp as auth_bp
+    from .documents  import bp as documents_bp
+    from .citations  import bp as citations_bp
+    from .chats      import bp as chats_bp
+    from .ocr        import bp as ocr_bp
+    from .inference  import bp as inference_bp
+    from .search     import bp as search_bp      # ← new
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(documents_bp)
@@ -18,3 +19,4 @@ def register_blueprints(app: Flask) -> None:
     app.register_blueprint(chats_bp)
     app.register_blueprint(ocr_bp)
     app.register_blueprint(inference_bp)
+    app.register_blueprint(search_bp)            # ← new

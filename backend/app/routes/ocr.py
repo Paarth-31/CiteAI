@@ -14,6 +14,9 @@ from flask_jwt_extended import current_user, jwt_required
 from ..extensions import db
 from ..models import Document
 
+from ..models import BaselineCase
+from ..services.citation_graph_service import generate_citation_graph
+
 bp = Blueprint("ocr", __name__, url_prefix="/api/ocr")
 
 
@@ -37,6 +40,9 @@ def _ensure_project_root():
     root_str = str(project_root)
     if root_str not in sys.path:
         sys.path.insert(0, root_str)
+    lexai_str = str(project_root / "lexai")
+    if lexai_str not in sys.path:
+        sys.path.insert(0, lexai_str)
 
 
 def _compute_internal_analysis(document: Document, file_path: Path) -> dict | None:
@@ -114,7 +120,7 @@ def _get_dummy_analysis(title: str) -> dict:
 @jwt_required()
 def process_document(document_id: str):
     """Run OCR & build citation graph for a document, caching results."""
-    document = Document.query.filter_by(id=document_id, user_id=current_user.id).one_or_none()
+    document = Document.query.filter_by(id=document_id, user_id=str(current_user.id)).one_or_none()
     if document is None:
         return jsonify({"error": "Document not found"}), HTTPStatus.NOT_FOUND
 
@@ -187,7 +193,7 @@ def process_document(document_id: str):
 @jwt_required()
 def query_document(document_id: str):
     """Answer a query using cached OCR text (fallback to live OCR)."""
-    document = Document.query.filter_by(id=document_id, user_id=current_user.id).one_or_none()
+    document = Document.query.filter_by(id=document_id, user_id=str(current_user.id)).one_or_none()
     if document is None:
         return jsonify({"error": "Document not found"}), HTTPStatus.NOT_FOUND
 
@@ -229,7 +235,7 @@ def query_document(document_id: str):
 @jwt_required()
 def get_citation_graph(document_id: str):
     """Return raw citation graph JSON (nodes & edges). Generate if missing."""
-    document = Document.query.filter_by(id=document_id, user_id=current_user.id).one_or_none()
+    document = Document.query.filter_by(id=document_id, user_id=str(current_user.id)).one_or_none()
     if document is None:
         return jsonify({"error": "Document not found"}), HTTPStatus.NOT_FOUND
 
@@ -254,47 +260,62 @@ def get_citation_graph(document_id: str):
 # ---------------------------------------------------------------------------
 # Citation Nodes (positioned + filtered)
 # ---------------------------------------------------------------------------
+
 @bp.get("/citation-nodes/<document_id>")
 @jwt_required()
 def get_citation_nodes(document_id: str):
-    """Return positioned citation nodes with filtering and layout stats."""
-    document = Document.query.filter_by(id=document_id, user_id=current_user.id).one_or_none()
-    if document is None:
-        return jsonify({"error": "Document not found"}), HTTPStatus.NOT_FOUND
+    """Return positioned citation nodes — works for both uploaded docs and baseline slugs."""
+    from ..services.citation_graph_service import generate_citation_graph
 
-    # Ensure we have a graph
-    if not document.citation_graph:
-        if not document.ocr_text:
-            return jsonify({"nodes": [], "edges": [], "total_nodes": 0}), HTTPStatus.OK
+    # Try user document first (document_id is a UUID)
+    import uuid as _uuid
+    document = None
+    try:
+        _uuid.UUID(document_id)   # validates format — raises ValueError if not a UUID
+        document = Document.query.filter_by(id=document_id, user_id=str(current_user.id)).one_or_none()
+    except (ValueError, Exception):
+        pass   # not a UUID → must be a baseline slug, handled below
+
+    if document is not None:
+        # ── Uploaded document path ───────────────────────────────────────────
+        if not document.citation_graph:
+            if not document.ocr_text:
+                return jsonify({"nodes": [], "edges": [], "total_nodes": 0}), HTTPStatus.OK
+            try:
+                _ensure_project_root()
+                document.citation_graph = generate_citation_graph(document.ocr_text, document.title)
+                db.session.commit()
+            except Exception as e:
+                current_app.logger.error(f"Citation graph generation failed: {e}")
+                return jsonify({"nodes": [], "edges": [], "total_nodes": 0}), HTTPStatus.OK
+        graph = document.citation_graph or {}
+
+    else:
+        # ── Baseline case path (document_id is a slug like "gobind_case") ───
+        case = BaselineCase.query.filter_by(slug=document_id).one_or_none()
+        if case is None:
+            return jsonify({"error": "Document not found"}), HTTPStatus.NOT_FOUND
         try:
-            _ensure_project_root()
-            from app.services.citation_graph_service import generate_citation_graph
-            document.citation_graph = generate_citation_graph(document.ocr_text, document.title)
-            db.session.commit()
-        except Exception as e:  # noqa: BLE001
-            current_app.logger.error(f"Citation graph generation failed: {e}")
-            return jsonify({"nodes": [], "edges": [], "total_nodes": 0}), HTTPStatus.OK
+            graph = generate_citation_graph(case.full_text, case.title)
+        except Exception as e:
+            current_app.logger.exception(f"Graph generation failed for {document_id}")
+            return jsonify({"error": f"Graph generation failed: {e}"}), HTTPStatus.INTERNAL_SERVER_ERROR
 
-    graph = document.citation_graph or {}
     nodes = graph.get("nodes", [])
     edges = graph.get("edges", [])
     total_nodes = len(nodes)
+
     if total_nodes == 0:
         return jsonify({
-            "nodes": [],
-            "edges": [],
-            "total_nodes": 0,
-            "filtered_nodes": 0,
-            "showing_top": 0,
-            "has_more": False,
+            "nodes": [], "edges": [],
+            "total_nodes": 0, "filtered_nodes": 0,
+            "showing_top": 0, "has_more": False,
         })
 
-    # --- Filtering parameters ---
     limit = min(max(request.args.get("limit", type=int) or 50, 1), 200)
     min_citations = request.args.get("min_citations", default=0, type=int) or 0
     year_filter = request.args.get("year", type=int)
 
-    # Build citation counts & adjacency
     citation_counts: dict[str, int] = {}
     adjacency: dict[str, list[str]] = {}
     reverse_cited: set[str] = set()
@@ -308,130 +329,56 @@ def get_citation_nodes(document_id: str):
         adjacency.setdefault(src, []).append(tgt)
         reverse_cited.add(tgt)
 
-    # Enrich nodes
     for n in nodes:
-        n_id = n.get("id")
-        n["citation_count"] = citation_counts.get(n_id, 0)
+        n["citation_count"] = citation_counts.get(n.get("id"), 0)
 
-    # Apply filters
     filtered = [n for n in nodes if n.get("citation_count", 0) >= min_citations]
     if year_filter is not None:
         filtered = [n for n in filtered if n.get("year") == year_filter]
 
-    # Sort & slice
     filtered.sort(key=lambda n: n.get("citation_count", 0), reverse=True)
     visible = filtered[:limit]
     visible_ids = {n.get("id") for n in visible}
 
-    # Choose layout: default to force-directed ("scattered"); tree available via layout=tree
-    layout_kind = (request.args.get("layout") or "force").lower()
+    # Force-directed layout via NetworkX
+    G = nx.DiGraph()
+    for n in visible:
+        G.add_node(n.get("id"))
+    for e in edges:
+        src = e.get("source")
+        tgt = e.get("target")
+        if src in visible_ids and tgt in visible_ids:
+            G.add_edge(src, tgt)
+
+    n_count = max(len(G), 1)
+    k = 1.5 / math.sqrt(n_count)
+    pos = nx.spring_layout(G, k=k, iterations=200, seed=42, threshold=1e-4)
     positions: dict[str, dict[str, float]] = {}
 
-    if layout_kind == "tree":
-        # Hierarchical tree layout
-        root_ids = [n.get("id") for n in visible if n.get("id") not in reverse_cited or n.get("id") not in visible_ids]
-        if not root_ids:
-            root_ids = [n.get("id") for n in visible[:3]]
+    if pos:
+        xs = [p[0] for p in pos.values()]
+        ys = [p[1] for p in pos.values()]
+        span_x = (max(xs) - min(xs)) or 1.0
+        span_y = (max(ys) - min(ys)) or 1.0
+        for nid, (px, py) in pos.items():
+            positions[nid] = {
+                "x": float(max(5, min(95, 10 + 80 * (px - min(xs)) / span_x))),
+                "y": float(max(5, min(95, 10 + 80 * (py - min(ys)) / span_y))),
+            }
 
-        levels: dict[str, int] = {}
-        q: deque[str] = deque()
-        for rid in root_ids:
-            levels[rid] = 0
-            q.append(rid)
-        for n in visible:
-            nid = n.get("id")
-            if nid not in levels:
-                levels[nid] = 0
-                q.append(nid)
-
-        while q:
-            current = q.popleft()
-            cur_level = levels[current]
-            for child in adjacency.get(current, []):
-                if child in visible_ids and child not in levels:
-                    levels[child] = cur_level + 1
-                    q.append(child)
-
-        max_level = max(levels.values()) if levels else 0
-        level_groups: dict[int, list[str]] = {i: [] for i in range(max_level + 1)}
-        for nid, lvl in levels.items():
-            level_groups[lvl].append(nid)
-
-        y_gap = 80 / (max_level + 1) if max_level > 0 else 40
-        for lvl in range(max_level + 1):
-            group = level_groups[lvl]
-            count = len(group)
-            x_gap = 80 / (count + 1) if count else 40
-            for idx, nid in enumerate(group):
-                positions[nid] = {"x": 10 + (idx + 1) * x_gap, "y": 10 + lvl * y_gap}
-
-        # Slight anti-overlap pass
-        repulsion = 120
-        for _ in range(15):
-            forces = {nid: {"x": 0.0, "y": 0.0} for nid in positions}
-            ids = list(positions.keys())
-            for i, a in enumerate(ids):
-                for b in ids[i + 1:]:
-                    ax, ay = positions[a]["x"], positions[a]["y"]
-                    bx, by = positions[b]["x"], positions[b]["y"]
-                    dx = ax - bx
-                    dy = ay - by
-                    dist = math.sqrt(dx * dx + dy * dy) + 0.1
-                    force = repulsion / (dist * dist)
-                    fx = (dx / dist) * force
-                    fy = (dy / dist) * force
-                    forces[a]["x"] += fx
-                    forces[a]["y"] += fy * 0.25
-                    forces[b]["x"] -= fx
-                    forces[b]["y"] -= fy * 0.25
-            for nid in positions:
-                positions[nid]["x"] = max(5, min(95, positions[nid]["x"] + forces[nid]["x"] * 0.2))
-                positions[nid]["y"] = max(5, min(95, positions[nid]["y"] + forces[nid]["y"] * 0.1))
-    else:
-        # Force-directed using NetworkX spring_layout (Fruchterman–Reingold)
-        G = nx.DiGraph()
-        for n in visible:
-            nid = n.get("id")
-            G.add_node(nid)
-        for e in edges:
-            src = e.get("source")
-            tgt = e.get("target")
-            if src in visible_ids and tgt in visible_ids:
-                G.add_edge(src, tgt)
-
-        n_count = max(len(G), 1)
-        # k controls ideal distance; scale with node count for readability
-        k = 1.5 / math.sqrt(n_count)
-        pos = nx.spring_layout(G, k=k, iterations=200, seed=42, threshold=1e-4)
-
-        # Normalize to 10..90 range
-        if pos:
-            xs = [p[0] for p in pos.values()]
-            ys = [p[1] for p in pos.values()]
-            min_x, max_x = min(xs), max(xs)
-            min_y, max_y = min(ys), max(ys)
-            span_x = (max_x - min_x) or 1.0
-            span_y = (max_y - min_y) or 1.0
-            for nid, (px, py) in pos.items():
-                nxp = 10 + 80 * (px - min_x) / span_x
-                nyp = 10 + 80 * (py - min_y) / span_y
-                positions[nid] = {"x": float(max(5, min(95, nxp))), "y": float(max(5, min(95, nyp)))}
-
-    # Format nodes
     formatted_nodes = []
     for n in visible:
         nid = n.get("id")
-        pos = positions.get(nid, {"x": 50, "y": 50})
+        p = positions.get(nid, {"x": 50.0, "y": 50.0})
         formatted_nodes.append({
             "id": nid,
             "title": n.get("title", "Unknown"),
-            "x": pos["x"],
-            "y": pos["y"],
+            "x": p["x"],
+            "y": p["y"],
             "citations": n.get("citation_count", 0),
             "year": n.get("year") or 0,
         })
 
-    # Visible edges
     visible_edges = [
         e for e in edges
         if e.get("source") in visible_ids and e.get("target") in visible_ids
@@ -446,6 +393,137 @@ def get_citation_nodes(document_id: str):
         "has_more": len(filtered) > len(visible),
     })
 
+# @bp.get("/citation-nodes/<document_id>")
+# @jwt_required()
+# def get_citation_nodes(document_id: str):
+#     """Return positioned citation nodes — works for both uploaded docs and baseline slugs."""
+#     from ..services.citation_graph_service import generate_citation_graph
+
+#     # ── Try user document first ──────────────────────────────────────────────
+#     document = Document.query.filter_by(id=document_id, user_id=str(current_user.id)).one_or_none()
+
+#     if document is not None:
+#         # ── Document path ────────────────────────────────────────────────────
+#         if not document.citation_graph:
+#             if not document.ocr_text:
+#                 return jsonify({"nodes": [], "edges": [], "total_nodes": 0}), HTTPStatus.OK
+#             try:
+#                 _ensure_project_root()
+#                 document.citation_graph = generate_citation_graph(document.ocr_text, document.title)
+#                 db.session.commit()
+#             except Exception as e:
+#                 current_app.logger.error(f"Citation graph generation failed: {e}")
+#                 return jsonify({"nodes": [], "edges": [], "total_nodes": 0}), HTTPStatus.OK
+
+#         graph = document.citation_graph or {}
+
+#     else:
+#         # ── Baseline case path (slug lookup) ─────────────────────────────────
+#         case = BaselineCase.query.filter_by(slug=document_id).one_or_none()
+#         if case is None:
+#             return jsonify({"error": "Document not found"}), HTTPStatus.NOT_FOUND
+#         try:
+#             graph = generate_citation_graph(case.full_text, case.title)
+#         except Exception as e:
+#             current_app.logger.exception(f"Graph generation failed for baseline {document_id}")
+#             return jsonify({"error": f"Graph generation failed: {e}"}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+#     nodes = graph.get("nodes", [])
+#     edges = graph.get("edges", [])
+#     total_nodes = len(nodes)
+
+#     if total_nodes == 0:
+#         return jsonify({
+#             "nodes": [], "edges": [],
+#             "total_nodes": 0, "filtered_nodes": 0,
+#             "showing_top": 0, "has_more": False,
+#         })
+
+#     # ── Filtering parameters ─────────────────────────────────────────────────
+#     limit = min(max(request.args.get("limit", type=int) or 50, 1), 200)
+#     min_citations = request.args.get("min_citations", default=0, type=int) or 0
+#     year_filter = request.args.get("year", type=int)
+
+#     # Build citation counts & adjacency
+#     citation_counts: dict[str, int] = {}
+#     adjacency: dict[str, list[str]] = {}
+#     reverse_cited: set[str] = set()
+
+#     for edge in edges:
+#         src = edge.get("source")
+#         tgt = edge.get("target")
+#         if not src or not tgt:
+#             continue
+#         citation_counts[tgt] = citation_counts.get(tgt, 0) + 1
+#         adjacency.setdefault(src, []).append(tgt)
+#         reverse_cited.add(tgt)
+
+#     for n in nodes:
+#         n["citation_count"] = citation_counts.get(n.get("id"), 0)
+
+#     filtered = [n for n in nodes if n.get("citation_count", 0) >= min_citations]
+#     if year_filter is not None:
+#         filtered = [n for n in filtered if n.get("year") == year_filter]
+
+#     filtered.sort(key=lambda n: n.get("citation_count", 0), reverse=True)
+#     visible = filtered[:limit]
+#     visible_ids = {n.get("id") for n in visible}
+
+#     # ── Force-directed layout ────────────────────────────────────────────────
+#     layout_kind = (request.args.get("layout") or "force").lower()
+#     positions: dict[str, dict[str, float]] = {}
+
+#     if layout_kind != "tree":
+#         G = nx.DiGraph()
+#         for n in visible:
+#             G.add_node(n.get("id"))
+#         for e in edges:
+#             src = e.get("source")
+#             tgt = e.get("target")
+#             if src in visible_ids and tgt in visible_ids:
+#                 G.add_edge(src, tgt)
+
+#         n_count = max(len(G), 1)
+#         k = 1.5 / math.sqrt(n_count)
+#         pos = nx.spring_layout(G, k=k, iterations=200, seed=42, threshold=1e-4)
+
+#         if pos:
+#             xs = [p[0] for p in pos.values()]
+#             ys = [p[1] for p in pos.values()]
+#             span_x = (max(xs) - min(xs)) or 1.0
+#             span_y = (max(ys) - min(ys)) or 1.0
+#             for nid, (px, py) in pos.items():
+#                 positions[nid] = {
+#                     "x": float(max(5, min(95, 10 + 80 * (px - min(xs)) / span_x))),
+#                     "y": float(max(5, min(95, 10 + 80 * (py - min(ys)) / span_y))),
+#                 }
+
+#     formatted_nodes = []
+#     for n in visible:
+#         nid = n.get("id")
+#         p = positions.get(nid, {"x": 50.0, "y": 50.0})
+#         formatted_nodes.append({
+#             "id": nid,
+#             "title": n.get("title", "Unknown"),
+#             "x": p["x"],
+#             "y": p["y"],
+#             "citations": n.get("citation_count", 0),
+#             "year": n.get("year") or 0,
+#         })
+
+#     visible_edges = [
+#         e for e in edges
+#         if e.get("source") in visible_ids and e.get("target") in visible_ids
+#     ]
+
+#     return jsonify({
+#         "nodes": formatted_nodes,
+#         "edges": visible_edges,
+#         "total_nodes": total_nodes,
+#         "filtered_nodes": len(filtered),
+#         "showing_top": len(visible),
+#         "has_more": len(filtered) > len(visible),
+#     })
 
 # ---------------------------------------------------------------------------
 # Internal Coherence Analysis (compute on demand or return cached)
@@ -458,7 +536,7 @@ def get_internal_analysis(document_id: str):
     If not cached, compute using the multi-model internal agent, cache, and return.
     Falls back to dummy data if analysis is unavailable.
     """
-    document = Document.query.filter_by(id=document_id, user_id=current_user.id).one_or_none()
+    document = Document.query.filter_by(id=document_id, user_id=str(current_user.id)).one_or_none()
     if document is None:
         return jsonify({"error": "Document not found"}), HTTPStatus.NOT_FOUND
 

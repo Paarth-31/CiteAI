@@ -15,27 +15,29 @@ from .ocr_agent import process_pdf  # Use OCR agent to extract text
 # ===========================================
 # 1. Model Setup
 # ===========================================
-embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/paraphrase-MiniLM-L6-v2")
-rag_pipe = pipeline("text-generation", model="microsoft/phi-2", max_new_tokens=400, temperature=0.3)
-rag_llm = HuggingFacePipeline(pipeline=rag_pipe)
+# embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/paraphrase-MiniLM-L6-v2")
+# rag_pipe = pipeline("text-generation", model="microsoft/phi-2", max_new_tokens=400, temperature=0.3)
+# rag_llm = HuggingFacePipeline(pipeline=rag_pipe)
 
 
 # ===========================================
 # 2. FAISS Index Builder
 # ===========================================
 def build_faiss_index(text: str) -> FAISS:
+    embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/paraphrase-MiniLM-L6-v2")
     splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=120)
     chunks = splitter.split_text(text)
     if not chunks:
         raise ValueError("No text chunks available for indexing")
-    vectordb = FAISS.from_texts(chunks, embedding=embedding_model)
-    return vectordb
+    return FAISS.from_texts(chunks, embedding=embedding_model)
 
 
 # ===========================================
 # 3. Query RAG
 # ===========================================
 def query_rag(vectordb: FAISS, query: str, k: int = 3) -> str:
+    rag_pipe = pipeline("text-generation", model="microsoft/phi-2", max_new_tokens=400, temperature=0.3)
+    rag_llm = HuggingFacePipeline(pipeline=rag_pipe)
     docs = vectordb.similarity_search(query, k=k)
     context = "\n".join([d.page_content for d in docs])
     
