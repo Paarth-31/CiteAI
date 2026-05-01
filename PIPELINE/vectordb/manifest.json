@@ -1,0 +1,15 @@
+{
+  "built_at": "2026-04-30T23:13:00Z",
+  "source_dir": "/home/honey/classes/dbms/CiteAI/PIPELINE/doc-store",
+  "total_chunks": 88,
+  "documents": [
+    {
+      "file": "12916_2023_Article_3180.pdf",
+      "domain": "medical"
+    },
+    {
+      "file": "330_2020_Article_7034.pdf",
+      "domain": "medical"
+    }
+  ]
+}

@@ -14,6 +14,7 @@ from pathlib import Path
 
 from lexai.agents import InLegalBERTExternalAgent, BioBERTExternalAgent
 
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 # ── Standalone demo helpers ───────────────────────────────────────────────────
 
