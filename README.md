@@ -7,40 +7,49 @@ LexAI is an intelligent system for processing, analyzing, and retrieving legal d
 ### Installation
 
 ```bash
-# Navigate to project directory
-cd /home/anand/eudia/eudia
-
 # Install dependencies
 pip install -r requirements.txt
 ```
 
-### Run Demo
+### MODEL SETUP
 
 ```bash
-# Run the ExternalInferenceAgent demo
-python lexai/agents/external_inference_agent.py
+#navigate to PIPELINE
+cd PIPELINE
 
-# Run tests
-python lexai/agents/external_inference_agent.py --test
+#build the vectordb, with documents stored in /doc-store
+python build_vectordb.py --reset 
 ```
 
-### Basic Usage
+#### Manual Model run/test
 
 ```python
-from lexai.agents import ExternalInferenceAgent
-import json
+python main.py <path/to/your/document>
+```
 
-# Initialize agent
-agent = ExternalInferenceAgent()
+### Project Structure
 
-# Load and index candidates
-agent.build_index(candidates)
+```bash
+.
+├── backend
+│   ├── app
+│   │   ├── routes
+│   │   ├── schemas
+│   │   └── services
+│   └── migrations
+│       └── versions
+├── PIPELINE
+│   ├── doc-store
+│   ├── outputs
+│   └── vectordb
+├── tests
+└── website
+    ├── public
+    └── src
+        ├── app
+        ├── components
+        └── lib
 
-# Run inference
-result = agent.infer(target_case, top_k=5, internal_confidence=0.8)
-
-# Print results
-print(json.dumps(result, indent=2))
 ```
 
 ## ✨ Features

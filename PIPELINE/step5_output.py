@@ -197,6 +197,8 @@ def run(
     out_path     : if given, write JSON report to this path
     json_stdout  : if True, print JSON to stdout instead of pretty report
     """
+    out_path = out_path or Path("outputs/report.json")
+
     if json_stdout:
         print(json.dumps(_to_json(state), indent=2))
     else:
