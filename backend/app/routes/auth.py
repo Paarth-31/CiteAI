@@ -20,9 +20,9 @@ bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
 @bp.post("/register")
 def register():
-    payload = request.get_json(silent=True) or {}
-    name = (payload.get("name") or "").strip()
-    email = (payload.get("email") or "").strip().lower()
+    payload  = request.get_json(silent=True) or {}
+    name     = (payload.get("name") or "").strip()
+    email    = (payload.get("email") or "").strip().lower()
     password = payload.get("password") or ""
 
     if not name:
@@ -30,10 +30,7 @@ def register():
     if not email:
         return jsonify({"error": "Email is required"}), HTTPStatus.BAD_REQUEST
     if not password or len(password) < 8:
-        return (
-            jsonify({"error": "Password must be at least 8 characters"}),
-            HTTPStatus.BAD_REQUEST,
-        )
+        return jsonify({"error": "Password must be at least 8 characters"}), HTTPStatus.BAD_REQUEST
 
     try:
         user = create_user(name=name, email=email, password=password)
@@ -45,8 +42,8 @@ def register():
 
 @bp.post("/login")
 def login():
-    payload = request.get_json(silent=True) or {}
-    email = (payload.get("email") or "").strip().lower()
+    payload  = request.get_json(silent=True) or {}
+    email    = (payload.get("email") or "").strip().lower()
     password = payload.get("password") or ""
 
     if not email or not password:
@@ -56,19 +53,19 @@ def login():
     if not user:
         return jsonify({"error": "Invalid credentials"}), HTTPStatus.UNAUTHORIZED
 
-    access_token = create_access_token(identity=user.id)
-    refresh_token = create_refresh_token(identity=user.id)
+    # BUG FIX: user.id is a UUID object (not JSON-serialisable).
+    # Pass str(user.id) as the JWT identity so Flask-JWT can serialise it.
+    # The user_lookup_loader in extensions.py receives this string and does
+    # User.query.filter_by(id=identity) which PostgreSQL handles fine.
+    identity = str(user.id)
+    access_token = create_access_token(identity=str(identity))
+    refresh_token = create_refresh_token(identity=str(identity))
 
-    return (
-        jsonify(
-            {
-                "user": user_to_dict(user),
-                "accessToken": access_token,
-                "refreshToken": refresh_token,
-            }
-        ),
-        HTTPStatus.OK,
-    )
+    return jsonify({
+    "accessToken": access_token,
+    "refreshToken": refresh_token,
+    "user": user_to_dict(user)
+}), 200
 
 
 @bp.post("/refresh")
@@ -82,8 +79,7 @@ def refresh_access_token():
     if user is None:
         return jsonify({"error": "User not found"}), HTTPStatus.NOT_FOUND
 
-    new_access_token = create_access_token(identity=identity)
-    return jsonify({"accessToken": new_access_token}), HTTPStatus.OK
+    return jsonify({"accessToken": create_access_token(identity=identity)}), HTTPStatus.OK
 
 
 @bp.get("/me")
@@ -97,5 +93,5 @@ def current_user_profile():
 @bp.post("/logout")
 @jwt_required(optional=True)
 def logout():
-    # Stateless JWT setup - the frontend should simply discard tokens.
+    # Stateless JWT — frontend discards tokens on its side.
     return jsonify({"success": True}), HTTPStatus.OK

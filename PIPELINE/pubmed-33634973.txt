@@ -1,0 +1,148 @@
+PMID- 33634973
+OWN - NLM
+STAT- MEDLINE
+DCOM- 20211223
+LR  - 20240331
+IS  - 2001-1326 (Print)
+IS  - 2001-1326 (Electronic)
+IS  - 2001-1326 (Linking)
+VI  - 11
+IP  - 2
+DP  - 2021 Feb
+TI  - Improving mitochondria and ER stability helps eliminate upper motor neuron 
+      degeneration that occurs due to mSOD1 toxicity and TDP-43 pathology.
+PG  - e336
+LID - 10.1002/ctm2.336 [doi]
+LID - e336
+AB  - BACKGROUND: Upper motor neurons (UMNs) are a key component of motor neuron 
+      circuitry. Their degeneration is a hallmark for diseases, such as hereditary 
+      spastic paraplegia (HSP), primary lateral sclerosis (PLS), and amyotrophic 
+      lateral sclerosis (ALS). Currently there are no preclinical assays investigating 
+      cellular responses of UMNs to compound treatment, even for diseases of the UMNs. 
+      The basis of UMN vulnerability is not fully understood, and no compound has yet 
+      been identified to improve the health of diseased UMNs: two major roadblocks for 
+      building effective treatment strategies. METHODS: Novel UMN reporter models, in 
+      which UMNs that are diseased because of misfolded superoxide dismutase protein 
+      (mSOD1) toxicity and TDP-43 pathology are labeled with eGFP expression, allow 
+      direct assessment of UMN response to compound treatment. Electron microscopy 
+      reveals very precise aspects of endoplasmic reticulum (ER) and mitochondrial 
+      damage. Administration of NU-9, a compound initially identified based on its 
+      ability to reduce mSOD1 toxicity, has profound impact on improving the health and 
+      stability of UMNs, as identified by detailed cellular and ultrastructural 
+      analyses. RESULTS: Problems with mitochondria and ER are conserved in diseased 
+      UMNs among different species. NU-9 has drug-like pharmacokinetic properties. It 
+      lacks toxicity and crosses the blood brain barrier. NU-9 improves the structural 
+      integrity of mitochondria and ER, reduces levels of mSOD1, stabilizes 
+      degenerating UMN apical dendrites, improves motor behavior measured by the 
+      hanging wire test, and eliminates ongoing degeneration of UMNs that become 
+      diseased both because of mSOD1 toxicity and TDP-43 pathology, two distinct and 
+      important overarching causes of motor neuron degeneration. CONCLUSIONS: 
+      Mechanism-focused and cell-based drug discovery approaches not only addressed key 
+      cellular defects responsible for UMN loss, but also identified NU-9, the first 
+      compound to improve the health of diseased UMNs, neurons that degenerate in ALS, 
+      HSP, PLS, and ALS/FTLD patients.
+CI  - © 2021 The Authors. Clinical and Translational Medicine published by John Wiley & 
+      Sons Australia, Ltd on behalf of Shanghai Institute of Clinical Bioinformatics.
+FAU - Genç, Barış
+AU  - Genç B
+AD  - Department of Neurology, Feinberg School of Medicine, Northwestern University, 
+      Chicago, Illinois, USA.
+FAU - Gautam, Mukesh
+AU  - Gautam M
+AD  - Department of Neurology, Feinberg School of Medicine, Northwestern University, 
+      Chicago, Illinois, USA.
+FAU - Gözütok, Öge
+AU  - Gözütok Ö
+AD  - Department of Neurology, Feinberg School of Medicine, Northwestern University, 
+      Chicago, Illinois, USA.
+FAU - Dervishi, Ina
+AU  - Dervishi I
+AD  - Department of Neurology, Feinberg School of Medicine, Northwestern University, 
+      Chicago, Illinois, USA.
+FAU - Sanchez, Santana
+AU  - Sanchez S
+AD  - Department of Neurology, Feinberg School of Medicine, Northwestern University, 
+      Chicago, Illinois, USA.
+FAU - Goshu, Gashaw M
+AU  - Goshu GM
+AD  - Department of Chemistry, Northwestern University, Evanston, Illinois, USA.
+FAU - Koçak, Nuran
+AU  - Koçak N
+AD  - Department of Neurology, Feinberg School of Medicine, Northwestern University, 
+      Chicago, Illinois, USA.
+FAU - Xie, Edward
+AU  - Xie E
+AD  - Department of Neurology, Feinberg School of Medicine, Northwestern University, 
+      Chicago, Illinois, USA.
+FAU - Silverman, Richard B
+AU  - Silverman RB
+AD  - Department of Chemistry, Northwestern University, Evanston, Illinois, USA.
+AD  - Department of Molecular Biosciences, Chemistry of Life Processes Institute, 
+      Center for Molecular Innovation and Drug Discovery, Center for Developmental 
+      Therapeutics, Northwestern University, Evanston, Illinois, USA.
+AD  - Department of Pharmacology, Feinberg School of Medicine, Northwestern University, 
+      Chicago, Illinois, USA.
+AD  - Chemistry of Life Processes Institute, Northwestern University, Evanston, IL, 
+      60208.
+FAU - Özdinler, P Hande
+AU  - Özdinler PH
+AUID- ORCID: 0000-0003-4125-6013
+AD  - Department of Neurology, Feinberg School of Medicine, Northwestern University, 
+      Chicago, Illinois, USA.
+AD  - Department of Molecular Biosciences, Chemistry of Life Processes Institute, 
+      Center for Molecular Innovation and Drug Discovery, Center for Developmental 
+      Therapeutics, Northwestern University, Evanston, Illinois, USA.
+AD  - Chemistry of Life Processes Institute, Northwestern University, Evanston, IL, 
+      60208.
+AD  - Mesulam Center for Cognitive Neurology and Alzheimer's Disease, Northwestern 
+      University, Feinberg School of Medicine, Chicago, IL, 60611.
+AD  - Les Turner ALS Center, Northwestern University, Feinberg School of Medicine, 
+      Chicago, IL, 60611.
+LA  - eng
+GR  - P30 AG013854/AG/NIA NIH HHS/United States
+GR  - R01 AG061708/AG/NIA NIH HHS/United States
+PT  - Journal Article
+PT  - Research Support, N.I.H., Extramural
+PT  - Research Support, Non-U.S. Gov't
+PL  - United States
+TA  - Clin Transl Med
+JT  - Clinical and translational medicine
+JID - 101597971
+RN  - EC 1.15.1.1 (Superoxide Dismutase-1)
+MH  - Animals
+MH  - Endoplasmic Reticulum/metabolism/*pathology
+MH  - Female
+MH  - Male
+MH  - Mice
+MH  - Mice, Inbred C57BL
+MH  - Mitochondria/metabolism/*pathology
+MH  - Motor Neuron Disease/metabolism/*pathology
+MH  - Proteostasis Deficiencies/metabolism/*pathology
+MH  - Rotarod Performance Test
+MH  - Superoxide Dismutase-1/*metabolism
+MH  - TDP-43 Proteinopathies/metabolism/*pathology
+PMC - PMC7898037
+OTO - NOTNLM
+OT  - ALS
+OT  - HSP
+OT  - NU-9
+OT  - PLS
+OT  - TDP-43 pathology
+OT  - mSOD1
+OT  - upper motor neurons
+COIS- The authors declare that there is no conflict of interest.
+EDAT- 2021/02/27 06:00
+MHDA- 2021/02/27 06:01
+PMCR- 2021/02/22
+CRDT- 2021/02/26 08:38
+PHST- 2020/11/10 00:00 [received]
+PHST- 2021/02/01 00:00 [revised]
+PHST- 2021/02/04 00:00 [accepted]
+PHST- 2021/02/26 08:38 [entrez]
+PHST- 2021/02/27 06:00 [pubmed]
+PHST- 2021/02/27 06:01 [medline]
+PHST- 2021/02/22 00:00 [pmc-release]
+AID - CTM2336 [pii]
+AID - 10.1002/ctm2.336 [doi]
+PST - ppublish
+SO  - Clin Transl Med. 2021 Feb;11(2):e336. doi: 10.1002/ctm2.336.
