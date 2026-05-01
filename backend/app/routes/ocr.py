@@ -131,10 +131,13 @@ def process_document(document_id: str):
     try:
         _ensure_project_root()
         from lexai.agents.ocr_agent import process_pdf  # performs OCR
-        from app.services.citation_graph_service import generate_citation_graph
+        from ..services.citation_graph_service import generate_citation_graph
 
         # If already processed, return cached
         if document.ocr_text and document.citation_graph:
+            if document.status != "completed":
+                document.update_status("completed")
+                db.session.commit()
             return jsonify({
                 "success": True,
                 "already_processed": True,
@@ -156,6 +159,7 @@ def process_document(document_id: str):
         document.ocr_text = ocr_text
         document.ocr_metadata = ocr_meta
         document.citation_graph = citation_graph
+        document.update_status("completed")
         db.session.commit()
 
         # Optionally trigger internal analysis automatically if not present
@@ -247,7 +251,7 @@ def get_citation_graph(document_id: str):
 
     try:
         _ensure_project_root()
-        from app.services.citation_graph_service import generate_citation_graph
+        from ..services.citation_graph_service import generate_citation_graph
         citation_graph = generate_citation_graph(document.ocr_text, document.title)
         document.citation_graph = citation_graph
         db.session.commit()

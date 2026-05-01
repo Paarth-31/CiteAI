@@ -6,7 +6,7 @@ $BackendDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $BackendDir
 
 # Check if database exists
-if (!(Test-Path ".\instance\eudia.db")) {
+if (!(Test-Path ".\instance\CiteAI.db")) {
     Write-Host "Database not found. Initializing..." -ForegroundColor Yellow
     & .\.venv\Scripts\python.exe init_db.py
 }

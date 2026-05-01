@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { fetchExternalInference, ExternalInferenceResponse, ExternalInferenceResultCase } from '@/lib/api';
 import { useToast } from './ToastProvider';
-import { BarChart2, RefreshCcw, X, Info } from 'lucide-react';
+import { BarChart2, RefreshCcw, X, Info, Sparkles } from 'lucide-react';
 
 interface Props {
   documentId: string | null;

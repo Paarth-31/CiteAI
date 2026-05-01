@@ -1,6 +1,6 @@
-# Eudia Backend Service
+# CiteAI Backend Service
 
-This folder contains the Flask backend that powers authentication, document storage, citation management and chat persistence for the Eudia platform.
+This folder contains the Flask backend that powers authentication, document storage, citation management and chat persistence for the CiteAI platform.
 
 ## Prerequisites
 
@@ -88,3 +88,52 @@ Authentication relies on JWT access and refresh tokens returned by `/api/auth/lo
 - `POST /api/chats/<id>/messages`
 
 Add additional routes (e.g. document upload, model inference) beside this structure as new features are implemented.
+
+## Precompute corpus for fast demos
+
+To keep demo retrieval fast, preload your external corpus into PostgreSQL once,
+then query it via pgvector during inference.
+
+### 1) Where to keep files locally
+
+- Legal PDFs (Constitution, IPC, CrPC, etc.): `CiteAI/corpus/legal_pdfs/`
+- Bio PDFs / papers (if you enable bio domain later): `CiteAI/corpus/bio_pdfs/`
+- Keep raw downloaded datasets under `CiteAI/corpus/datasets/` (optional)
+
+### 2) Apply schema + install dependencies
+
+```bash
+cd backend
+pip install -r requirements.txt
+flask db upgrade
+```
+
+### 3) Preload Hugging Face corpus
+
+```bash
+cd backend
+python precompute_corpus.py --hf-dataset ninadn/indian-legal --hf-split train --domain legal
+```
+
+Use `--limit 1000` first for a quicker dry run.
+
+### 4) Preload local legal PDFs
+
+```bash
+cd backend
+python precompute_corpus.py --pdf-dir ../corpus/legal_pdfs --domain legal
+```
+
+### 5) Reset and rebuild one domain (optional)
+
+```bash
+cd backend
+python precompute_corpus.py --domain legal --reset-domain --hf-dataset ninadn/indian-legal --pdf-dir ../corpus/legal_pdfs
+```
+
+This fills:
+- `corpus_documents`: source metadata + full text
+- `corpus_chunks`: chunk text + `sentence_embedding` (pgvector)
+
+Your inference route (`POST /api/inference/similar/<document_id>`) then retrieves
+from these precomputed vectors first, which removes per-request FAISS rebuild cost.

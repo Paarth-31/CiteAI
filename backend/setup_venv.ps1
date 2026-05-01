@@ -25,7 +25,7 @@ Write-Host "Setup complete!" -ForegroundColor Green
 Write-Host "====================" -ForegroundColor Green
 Write-Host "`nTo start the Flask server:" -ForegroundColor Cyan
 Write-Host "1. Make sure you are in the backend directory" -ForegroundColor Yellow
-Write-Host "   cd C:\Users\Sudhanshu\Desktop\Projects\Eudia\backend" -ForegroundColor White
+Write-Host "   cd CiteAI/backend" -ForegroundColor White
 Write-Host "`n2. Run the server:" -ForegroundColor Yellow
 Write-Host "   .\.venv\Scripts\python.exe -m flask run --port=8000" -ForegroundColor White
 Write-Host "`nNote: Always run Flask from the backend directory!" -ForegroundColor Red

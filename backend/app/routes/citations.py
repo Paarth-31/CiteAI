@@ -83,7 +83,7 @@ def create_citation(document_id: str):
         year             = year,
         trs_score        = float(trs_score) if trs_score is not None else None,
         similarity_score = float(similarity_score) if similarity_score is not None else None,
-        evidence_span    = evidence_span,
+        evidence_json    = evidence_span,
         source_model     = source_model,
     )
     db.session.add(citation)
@@ -146,7 +146,7 @@ def update_citation(document_id: str, citation_id: str):
                 return jsonify({"error": f"{opt_field} must be numeric"}), HTTPStatus.BAD_REQUEST
 
     if "evidenceSpan" in payload:
-        citation.evidence_span = payload["evidenceSpan"]
+        citation.evidence_json = payload["evidenceSpan"]
     if "sourceModel" in payload:
         citation.source_model = payload["sourceModel"]
 

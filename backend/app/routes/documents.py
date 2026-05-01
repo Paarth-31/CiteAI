@@ -85,7 +85,7 @@ def upload_document_file():
         file_url = f"/uploads/{stored_name}",
         file_size = storage_path.stat().st_size,
         status   = "pending",           # will move to "processing" → "completed"
-        user_id  = current_user.id,
+        user_id  = str(current_user.id),
     )
     db.session.add(document)
     db.session.commit()

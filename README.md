@@ -101,7 +101,7 @@ Clipped to [0, 1]
 
 ```bash
 # Clone the repository
-cd eudia
+cd CiteAI
 
 # Create a virtual environment (recommended)
 python -m venv .venv
@@ -178,7 +178,7 @@ python example_usage.py
 ## Project Structure
 
 ```
-eudia/
+CiteAI/
 ├── app.py                      # Main application entry point
 ├── ocr_agent.py               # PDF text extraction agent
 ├── example_usage.py           # Example usage demonstration

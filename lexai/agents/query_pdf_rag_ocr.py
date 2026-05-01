@@ -1,37 +1,239 @@
+# # lexai/agents/query_pdf_rag_ocr.py
+# import os
+# import json
+# from typing import Dict
+
+# from langchain_community.vectorstores import FAISS
+# from langchain_community.embeddings import HuggingFaceEmbeddings
+# from langchain_community.llms import HuggingFacePipeline
+# from transformers import pipeline
+# from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+# from .ocr_agent import process_pdf  # Use OCR agent to extract text
+
+# import hashlib
+
+# from pathlib import Path
+
+# BASE_DIR = Path(__file__).resolve().parent.parent
+# INDEX_PATH = str(BASE_DIR / "faiss_index")
+# HASH_PATH = str(BASE_DIR / "faiss_index" / "doc_hash.txt")
+
+# # ===========================================
+# # 1. Model Setup
+# # ===========================================
+# # embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/paraphrase-MiniLM-L6-v2")
+# # rag_pipe = pipeline("text-generation", model="microsoft/phi-2", max_new_tokens=400, temperature=0.3)
+# # rag_llm = HuggingFacePipeline(pipeline=rag_pipe)
+
+
+# # ===========================================
+# # 2. FAISS Index Builder
+# # ===========================================
+# def build_faiss_index(text: str) -> FAISS:
+#     embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/paraphrase-MiniLM-L6-v2")
+#     splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=120)
+#     chunks = splitter.split_text(text)
+#     if not chunks:
+#         raise ValueError("No text chunks available for indexing")
+#     return FAISS.from_texts(chunks, embedding=embedding_model)
+
+
+# # ===========================================
+# # 3. Query RAG
+# # ===========================================
+# def query_rag(vectordb: FAISS, query: str, k: int = 3) -> str:
+#     rag_pipe = pipeline("text-generation", model="microsoft/phi-2", max_new_tokens=400, temperature=0.3)
+#     rag_llm = HuggingFacePipeline(pipeline=rag_pipe)
+#     docs = vectordb.similarity_search(query, k=k)
+#     context = "\n".join([d.page_content for d in docs])
+    
+#     prompt = f"""
+# You are a legal assistant. Answer the question based on the following extracted PDF content:
+
+# Context:
+# {context}
+
+# Question:
+# {query}
+
+# Answer:
+# """
+#     response = rag_llm.invoke(prompt)
+#     if isinstance(response, dict) and "generated_text" in response:
+#         return response["generated_text"]
+#     if isinstance(response, list):
+#         return "\n".join(str(item) for item in response)
+#     return str(response)
+
+
+# # ===========================================
+# # 4. Master Function: PDF → Answer
+# # ===========================================
+# def query_pdf_with_ocr(pdf_path: str, query: str) -> Dict[str, str]:
+#     ocr_result = process_pdf(pdf_path)
+#     document_text = ocr_result.get("raw_text", "").strip()
+
+#     if not document_text:
+#         return {
+#             "File Name": ocr_result.get("file_name", "Unknown"),
+#             "Title": ocr_result.get("title", "Untitled"),
+#             "Query": query,
+#             "Answer": "No textual content could be extracted from this document.",
+#         }
+
+#     try:
+#         vectordb = build_faiss_index(document_text)
+#         answer = query_rag(vectordb, query)
+#     except ValueError:
+#         answer = "No relevant passages were found to answer this question."
+
+#     return {
+#         "File Name": ocr_result.get("file_name", "Unknown"),
+#         "Title": ocr_result.get("title", "Untitled"),
+#         "Query": query,
+#         "Answer": answer,
+#     }
+
+
+# # ===========================================
+# # 5. Optimized Function: Query from Cached Text
+# # ===========================================
+# def query_rag_from_text(document_text: str, query: str, title: str = "Document") -> Dict[str, str]:
+#     """
+#     Query document using cached OCR text (skips OCR processing).
+#     This is much faster than query_pdf_with_ocr when text is already extracted.
+    
+#     Args:
+#         document_text: Pre-extracted text from OCR
+#         query: Question to answer
+#         title: Document title
+        
+#     Returns:
+#         Dictionary with query results
+#     """
+#     if not document_text or not document_text.strip():
+#         return {
+#             "Title": title,
+#             "Query": query,
+#             "Answer": "No textual content available for this document.",
+#         }
+
+#     try:
+#         #FIX1 was building the db from scratch each time. Now checks local cache.
+#         current_hash = hashlib.md5(document_text.encode()).hexdigest()
+
+#         index_exists = os.path.exists(INDEX_PATH) and os.path.exists(HASH_PATH)
+#         if index_exists:
+#             with open(HASH_PATH, "r") as f:
+#                 saved_hash = f.read().strip()
+#             index_exists = saved_hash == current_hash
+
+#         if index_exists:
+#             embedding_model = HuggingFaceEmbeddings(
+#                 model_name="sentence-transformers/paraphrase-MiniLM-L6-v2"
+#             )
+#             vectordb = FAISS.load_local(
+#                 INDEX_PATH,
+#                 embedding_model,
+#                 allow_dangerous_deserialization=True
+#             )
+#         else:
+#             vectordb = build_faiss_index(document_text)
+#             os.makedirs(INDEX_PATH, exist_ok=True)
+#             vectordb.save_local(INDEX_PATH)
+#             with open(HASH_PATH, "w") as f:
+#                 f.write(current_hash)
+       
+#         #NOTE: ON DOCUMENT CHANGE, WILL HAVE TO REBUILD THE VECTORDB.
+#         #FIX2: Now hashes documents, automatically updates the db if hash don't match.
+#         answer = query_rag(vectordb, query)
+#     except ValueError:
+#         answer = "No relevant passages were found to answer this question."
+
+#     return {
+#         "Title": title,
+#         "Query": query,
+#         "Answer": answer,
+#     }
+
+
+# # ===========================================
+# # Example Run
+# # ===========================================
+# if __name__ == "__main__":
+#     sample_pdf = "lexai/data/raw/1-266Right_to_Privacy__Puttaswamy_Judgment-Chandrachud.pdf"
+#     sample_query = "What does the judgment say about Article 19(1)(a)?"
+
+#     result = query_pdf_with_ocr(sample_pdf, sample_query)
+#     print(json.dumps(result, indent=2))
+
+
+
+
+
+
+
 # lexai/agents/query_pdf_rag_ocr.py
+"""
+RAG-based document query agent.
+
+Retrieval  : FAISS + sentence-transformers (fast, local, unchanged)
+Generation : Google Gemini gemini-1.5-flash (replaces microsoft/phi-2)
+
+Why the change:
+  - phi-2 (2.7B) was being re-downloaded and re-loaded on every single
+    query call, making each chat message take 5-10 minutes on CPU.
+  - Gemini is called via API — near-instant responses with no local RAM cost.
+  - The FAISS retrieval stage is kept exactly as-is; only the LLM call changes.
+"""
+
 import os
 import json
+import hashlib
+from pathlib import Path
 from typing import Dict
 
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_community.llms import HuggingFacePipeline
-from transformers import pipeline
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from .ocr_agent import process_pdf  # Use OCR agent to extract text
+from .ocr_agent import process_pdf
 
-import hashlib
+# ── Paths ─────────────────────────────────────────────────────────────────────
+BASE_DIR   = Path(__file__).resolve().parent.parent
+INDEX_PATH = str(BASE_DIR / "faiss_index")
+HASH_PATH  = str(BASE_DIR / "faiss_index" / "doc_hash.txt")
 
-from pathlib import Path
+# ── Gemini client (lazy — only initialised on first use) ──────────────────────
+_gemini_model = None
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-indexpath = f"{BASE_DIR}/faiss_index/"
-hashpath = f"{BASE_DIR}/faiss_index/doc_hash.txt"
+def _get_gemini_model():
+    """Return a cached Gemini model instance, initialising it on first call."""
+    global _gemini_model
+    if _gemini_model is not None:
+        return _gemini_model
 
-# ===========================================
-# 1. Model Setup
-# ===========================================
-# embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/paraphrase-MiniLM-L6-v2")
-# rag_pipe = pipeline("text-generation", model="microsoft/phi-2", max_new_tokens=400, temperature=0.3)
-# rag_llm = HuggingFacePipeline(pipeline=rag_pipe)
+    api_key = os.getenv("GEMINI_API_KEY", "")
+    if not api_key:
+        raise EnvironmentError(
+            "GEMINI_API_KEY is not set. "
+            "Add it to backend/.env and restart Flask."
+        )
+
+    import google.generativeai as genai
+    genai.configure(api_key=api_key)
+    _gemini_model = genai.GenerativeModel("gemini-flash-latest")
+    return _gemini_model
 
 
-# ===========================================
-# 2. FAISS Index Builder
-# ===========================================
+# =============================================================================
+# 1. FAISS index builder  (unchanged — embedding model is fast on CPU)
+# =============================================================================
 def build_faiss_index(text: str) -> FAISS:
-    embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/paraphrase-MiniLM-L6-v2")
+    embedding_model = HuggingFaceEmbeddings(
+        model_name="sentence-transformers/paraphrase-MiniLM-L6-v2"
+    )
     splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=120)
     chunks = splitter.split_text(text)
     if not chunks:
@@ -39,123 +241,129 @@ def build_faiss_index(text: str) -> FAISS:
     return FAISS.from_texts(chunks, embedding=embedding_model)
 
 
-# ===========================================
-# 3. Query RAG
-# ===========================================
-def query_rag(vectordb: FAISS, query: str, k: int = 3) -> str:
-    rag_pipe = pipeline("text-generation", model="microsoft/phi-2", max_new_tokens=400, temperature=0.3)
-    rag_llm = HuggingFacePipeline(pipeline=rag_pipe)
-    docs = vectordb.similarity_search(query, k=k)
-    context = "\n".join([d.page_content for d in docs])
-    
-    prompt = f"""
-You are a legal assistant. Answer the question based on the following extracted PDF content:
+# =============================================================================
+# 2. RAG query  — retrieval via FAISS, generation via Gemini
+# =============================================================================
+def query_rag(vectordb: FAISS, query: str, k: int = 4) -> str:
+    """
+    Retrieve the top-k relevant passages with FAISS, then ask Gemini to
+    synthesise an answer grounded in those passages.
+    """
+    docs    = vectordb.similarity_search(query, k=k)
+    context = "\n\n".join([f"[Passage {i+1}]\n{d.page_content}" for i, d in enumerate(docs)])
 
-Context:
+    prompt = f"""You are a legal assistant specialising in Indian law.
+Answer the user's question using ONLY the passages provided below.
+If the answer is not in the passages, say so honestly.
+
+---
 {context}
+---
 
-Question:
-{query}
+Question: {query}
 
-Answer:
-"""
-    response = rag_llm.invoke(prompt)
-    if isinstance(response, dict) and "generated_text" in response:
-        return response["generated_text"]
-    if isinstance(response, list):
-        return "\n".join(str(item) for item in response)
-    return str(response)
+Give a clear, concise answer in 2–4 sentences. Cite the passage number (e.g. [Passage 1]) where relevant."""
+
+    model    = _get_gemini_model()
+    response = model.generate_content(prompt)
+    return response.text.strip()
 
 
-# ===========================================
-# 4. Master Function: PDF → Answer
-# ===========================================
+# =============================================================================
+# 3. Master function: PDF path → answer
+# =============================================================================
 def query_pdf_with_ocr(pdf_path: str, query: str) -> Dict[str, str]:
-    ocr_result = process_pdf(pdf_path)
+    ocr_result    = process_pdf(pdf_path)
     document_text = ocr_result.get("raw_text", "").strip()
 
     if not document_text:
         return {
             "File Name": ocr_result.get("file_name", "Unknown"),
-            "Title": ocr_result.get("title", "Untitled"),
-            "Query": query,
-            "Answer": "No textual content could be extracted from this document.",
+            "Title":     ocr_result.get("title", "Untitled"),
+            "Query":     query,
+            "Answer":    "No textual content could be extracted from this document.",
         }
 
     try:
         vectordb = build_faiss_index(document_text)
-        answer = query_rag(vectordb, query)
-    except ValueError:
-        answer = "No relevant passages were found to answer this question."
+        answer   = query_rag(vectordb, query)
+    except (ValueError, EnvironmentError) as exc:
+        answer = f"Query failed: {exc}"
 
     return {
         "File Name": ocr_result.get("file_name", "Unknown"),
-        "Title": ocr_result.get("title", "Untitled"),
-        "Query": query,
-        "Answer": answer,
+        "Title":     ocr_result.get("title", "Untitled"),
+        "Query":     query,
+        "Answer":    answer,
     }
 
 
-# ===========================================
-# 5. Optimized Function: Query from Cached Text
-# ===========================================
-def query_rag_from_text(document_text: str, query: str, title: str = "Document") -> Dict[str, str]:
+# =============================================================================
+# 4. Optimised function: query from already-cached OCR text
+#    (Flask always calls this — skips re-running OCR)
+# =============================================================================
+def query_rag_from_text(
+    document_text: str,
+    query: str,
+    title: str = "Document",
+) -> Dict[str, str]:
     """
-    Query document using cached OCR text (skips OCR processing).
-    This is much faster than query_pdf_with_ocr when text is already extracted.
-    
-    Args:
-        document_text: Pre-extracted text from OCR
-        query: Question to answer
-        title: Document title
-        
-    Returns:
-        Dictionary with query results
+    Query using pre-extracted OCR text stored in the database.
+    The FAISS index is cached to disk and reused if the document hasn't changed.
     """
     if not document_text or not document_text.strip():
         return {
-            "Title": title,
-            "Query": query,
+            "Title":  title,
+            "Query":  query,
             "Answer": "No textual content available for this document.",
         }
 
     try:
-        #FIX1 was building the db from scratch each time. Now checks local cache.
+        # ── Load or rebuild FAISS index ────────────────────────────────────
         current_hash = hashlib.md5(document_text.encode()).hexdigest()
 
-        index_exists = os.path.exists(index_path) and os.path.exists(hash_path)
-        if index_exists:
-            with open(hash_path, "r") as f:
-                saved_hash = f.read().strip()
-            index_exists = saved_hash == current_hash
+        index_ready = (
+            os.path.exists(INDEX_PATH)
+            and os.path.exists(HASH_PATH)
+        )
+        if index_ready:
+            with open(HASH_PATH) as f:
+                index_ready = f.read().strip() == current_hash
 
-        if index_exists:
-            vectordb = FAISS.load_local(index_path, embedding_model, allow_dangerous_deserialization=True)
+        if index_ready:
+            embedding_model = HuggingFaceEmbeddings(
+                model_name="sentence-transformers/paraphrase-MiniLM-L6-v2"
+            )
+            vectordb = FAISS.load_local(
+                INDEX_PATH,
+                embedding_model,
+                allow_dangerous_deserialization=True,
+            )
         else:
             vectordb = build_faiss_index(document_text)
-            vectordb.save_local(index_path)
-            with open(hash_path, "w") as f:
+            os.makedirs(INDEX_PATH, exist_ok=True)
+            vectordb.save_local(INDEX_PATH)
+            with open(HASH_PATH, "w") as f:
                 f.write(current_hash)
-       
-        #NOTE: ON DOCUMENT CHANGE, WILL HAVE TO REBUILD THE VECTORDB.
-        #FIX2: Now hashes documents, automatically updates the db if hash don't match.
+
+        # ── Generate answer via Gemini ─────────────────────────────────────
         answer = query_rag(vectordb, query)
-    except ValueError:
-        answer = "No relevant passages were found to answer this question."
+
+    except (ValueError, EnvironmentError) as exc:
+        answer = f"Query failed: {exc}"
 
     return {
-        "Title": title,
-        "Query": query,
+        "Title":  title,
+        "Query":  query,
         "Answer": answer,
     }
 
 
-# ===========================================
-# Example Run
-# ===========================================
+# =============================================================================
+# CLI smoke test
+# =============================================================================
 if __name__ == "__main__":
-    sample_pdf = "lexai/data/raw/1-266Right_to_Privacy__Puttaswamy_Judgment-Chandrachud.pdf"
+    sample_pdf   = "lexai/data/raw/1-266Right_to_Privacy__Puttaswamy_Judgment-Chandrachud.pdf"
     sample_query = "What does the judgment say about Article 19(1)(a)?"
-
-    result = query_pdf_with_ocr(sample_pdf, sample_query)
+    result       = query_pdf_with_ocr(sample_pdf, sample_query)
     print(json.dumps(result, indent=2))

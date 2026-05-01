@@ -9,7 +9,7 @@ import { Search, Loader2, FileText, ExternalLink, ChevronLeft, ChevronRight, Fil
 import { useDebounce } from '@/hooks/useDebounce';
 
 interface SearchResult {
-  tid: number;
+  tid: number | string;
   title: string;
   headline?: string;
   docsource?: string;
@@ -46,6 +46,7 @@ export default function SearchPage() {
   const [documentDetails, setDocumentDetails] = useState<any>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [searchDomain, setSearchDomain] = useState<'kanoon' | 'pubmed'>('kanoon');
   
   const debouncedSearchQuery = useDebounce(searchQuery, 500);
 
@@ -67,7 +68,9 @@ export default function SearchPage() {
       setError(null);
       setHasSearched(true);
 
-      const response = await fetch('/api/indian-kanoon/search', {
+      const endpoint = searchDomain === 'kanoon' ? '/api/indian-kanoon/search' : '/api/pubmed/search';
+
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -132,7 +135,11 @@ export default function SearchPage() {
     setLoadingDetails(true);
     
     try {
-      const response = await fetch(`/api/indian-kanoon/document/${result.tid}`);
+      const endpoint = searchDomain === 'kanoon' 
+        ? `/api/indian-kanoon/document/${result.tid}` 
+        : `/api/pubmed/document/${result.tid}`;
+
+      const response = await fetch(endpoint);
       if (response.ok) {
         const data = await response.json();
         setDocumentDetails(data);
@@ -144,12 +151,25 @@ export default function SearchPage() {
     }
   };
 
-  const handleDownloadDocument = (docId: number, format: 'pdf' | 'txt') => {
+  const handleDownloadDocument = (docId: number | string, format: 'pdf' | 'txt') => {
+    if (searchDomain === 'pubmed') {
+      window.open(`https://pubmed.ncbi.nlm.nih.gov/${docId}/`, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
     if (format === 'pdf') {
       window.open(`https://indiankanoon.org/origdoc/${docId}/`, '_blank', 'noopener,noreferrer');
     } else {
       window.open(`https://indiankanoon.org/doc/${docId}/`, '_blank', 'noopener,noreferrer');
     }
+  };
+
+  const handleDomainChange = (domain: 'kanoon' | 'pubmed') => {
+    setSearchDomain(domain);
+    setSearchQuery('');
+    setResults([]);
+    setCategories([]);
+    setHasSearched(false);
   };
 
   const stripHtmlTags = (html: string) => {
@@ -192,6 +212,30 @@ export default function SearchPage() {
                     Search through the comprehensive universal database for cases, judgments, and documents.
                   </p>
                 </div>
+              </div>
+
+              {/* Domain Toggle */}
+              <div className="flex items-center gap-2 mb-6 p-1 bg-[#161b25] border border-[#242c3a] rounded-xl w-fit">
+                <button
+                  onClick={() => handleDomainChange('kanoon')}
+                  className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+                    searchDomain === 'kanoon'
+                      ? 'bg-[rgba(41,182,246,0.1)] text-[#29b6f6]'
+                      : 'text-[#6b7a8d] hover:text-[#c9d1dc]'
+                  }`}
+                >
+                  Legal (Kanoon)
+                </button>
+                <button
+                  onClick={() => handleDomainChange('pubmed')}
+                  className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+                    searchDomain === 'pubmed'
+                      ? 'bg-[rgba(41,182,246,0.1)] text-[#29b6f6]'
+                      : 'text-[#6b7a8d] hover:text-[#c9d1dc]'
+                  }`}
+                >
+                  Biology (PubMed)
+                </button>
               </div>
 
               {/* Search Input with Filter Button */}
@@ -337,9 +381,9 @@ export default function SearchPage() {
                                 <Download size={18} />
                               </button>
                               <button
-                                onClick={() => window.open(`https://indiankanoon.org/doc/${result.tid}/`, '_blank', 'noopener,noreferrer')}
+                                onClick={() => window.open(searchDomain === 'kanoon' ? `https://indiankanoon.org/doc/${result.tid}/` : `https://pubmed.ncbi.nlm.nih.gov/${result.tid}/`, '_blank', 'noopener,noreferrer')}
                                 className="p-2 hover:bg-[#1e2433] hover:text-[#29b6f6] rounded-lg transition-colors border border-transparent hover:border-[#242c3a]"
-                                title="Open in Indian Kanoon"
+                                title={searchDomain === 'kanoon' ? "Open in Indian Kanoon" : "Open in PubMed"}
                               >
                                 <ExternalLink size={18} />
                               </button>
@@ -530,11 +574,11 @@ export default function SearchPage() {
                   Raw Text
                 </button>
                 <button
-                  onClick={() => window.open(`https://indiankanoon.org/doc/${selectedDocument.tid}/`, '_blank', 'noopener,noreferrer')}
+                  onClick={() => window.open(searchDomain === 'kanoon' ? `https://indiankanoon.org/doc/${selectedDocument.tid}/` : `https://pubmed.ncbi.nlm.nih.gov/${selectedDocument.tid}/`, '_blank', 'noopener,noreferrer')}
                   className="flex-1 bg-[#0b0e15] hover:bg-[#1e2433] text-[#f0f4f8] font-bold px-4 py-3 rounded-xl transition-all border border-[#242c3a] flex items-center justify-center gap-2 text-sm font-[var(--font-heading)]"
                 >
                   <ExternalLink size={18} className="text-[#34d399]" />
-                  Open Source
+                  {searchDomain === 'kanoon' ? "Open Kanoon" : "Open PubMed"}
                 </button>
               </div>
             </div>

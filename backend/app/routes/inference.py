@@ -16,9 +16,10 @@ from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request
 from flask_jwt_extended import current_user, jwt_required
+from sqlalchemy import text
 
-from ..extensions import model_registry
-from ..models import Document
+from ..extensions import db, model_registry
+from ..models import CorpusChunk, CorpusDocument, Document
 
 bp = Blueprint("inference", __name__, url_prefix="/api/inference")
 
@@ -132,22 +133,93 @@ def find_similar(document_id: str):
 
 # ── Internal helper ───────────────────────────────────────────────────────────
 def _run_legalbert(agent, ocr_text: str, top_k: int) -> dict:
-    """Run InLegalBERT retrieval on the document's OCR text.
+    """Run retrieval from PostgreSQL corpus vectors; fallback to in-memory file mode.
 
-    TODO: Once the team updates the FAISS layer, replace the in-memory
-    dataset load here with a lookup against the persistent FAISS index
-    stored in FAISS_INDEX_DIR. The agent should accept a pre-built index
-    so we don't rebuild it on every call.
+    Primary path uses precomputed pgvector rows in corpus_chunks/corpus_documents.
+    Fallback path preserves old behavior if corpus preload is not done yet.
     """
-    # Load the bundled baseline dataset for now.
-    # This will be replaced by persistent FAISS index lookup.
+    try:
+        return _run_pgvector_corpus_retrieval(ocr_text, top_k)
+    except Exception as exc:
+        current_app.logger.warning("PG vector retrieval unavailable, using fallback: %s", exc)
+        return _run_file_fallback(agent, ocr_text, top_k)
+
+
+def _run_pgvector_corpus_retrieval(ocr_text: str, top_k: int) -> dict:
+    sentence_model = model_registry.get_sentence_model()
+    query_vector = sentence_model.encode([ocr_text[:4000]], convert_to_numpy=True)[0].tolist()
+
+    # Pull extra chunk hits, then deduplicate by corpus doc with best distance.
+    rows = (
+        db.session.query(
+            CorpusChunk,
+            CorpusDocument,
+            CorpusChunk.sentence_embedding.op("<=>")(query_vector).label("distance"),
+        )
+        .join(CorpusDocument, CorpusChunk.corpus_document_id == CorpusDocument.id)
+        .filter(CorpusDocument.domain == "legal")
+        .order_by(text("distance ASC"))
+        .limit(max(top_k * 6, 30))
+        .all()
+    )
+
+    if not rows:
+        raise ValueError("No precomputed corpus vectors found in database")
+
+    by_doc = {}
+    for chunk, doc, dist in rows:
+        d = float(dist)
+        existing = by_doc.get(str(doc.id))
+        if existing is None or d < existing["distance"]:
+            by_doc[str(doc.id)] = {"chunk": chunk, "doc": doc, "distance": d}
+
+    ordered = sorted(by_doc.values(), key=lambda x: x["distance"])[:top_k]
+    retrieved_cases = []
+    for item in ordered:
+        doc = item["doc"]
+        chunk = item["chunk"]
+        similarity = max(0.0, min(1.0, 1.0 - item["distance"]))
+        meta = doc.metadata_json or {}
+        retrieved_cases.append({
+            "case_id": str(doc.id),
+            "title": doc.title,
+            "year": meta.get("year"),
+            "jurisdiction": meta.get("jurisdiction", "unknown"),
+            "similarity_score": similarity,
+            "context_fit": similarity,
+            "jurisdiction_score": 0.7,
+            "internal_confidence": similarity,
+            "uncertainty": max(0.0, 1.0 - similarity),
+            "trs": similarity,
+            "alignment_type": "supports",
+            "justification": "Retrieved from precomputed PostgreSQL vector corpus.",
+            "spans": {
+                "target_span": ocr_text[:240],
+                "candidate_span": (chunk.chunk_text or "")[:240],
+            },
+        })
+
+    overall = (
+        sum(float(c["similarity_score"]) for c in retrieved_cases) / len(retrieved_cases)
+        if retrieved_cases else 0.0
+    )
+    return {
+        "source": "postgresql-pgvector",
+        "candidates_searched": len(rows),
+        "retrieved": retrieved_cases,
+        "retrieved_cases": retrieved_cases,
+        "overall_external_coherence_score": overall,
+        "short_summary": f"Found {len(retrieved_cases)} related cases from precomputed corpus vectors.",
+    }
+
+
+def _run_file_fallback(agent, ocr_text: str, top_k: int) -> dict:
     import json
-    from pathlib import Path
 
     data_path = Path(__file__).resolve().parent.parent.parent.parent / "lexai" / "data" / "raw"
     candidates = []
     if data_path.exists():
-        for jf in list(data_path.glob("*.json"))[:50]:  # limit for demo
+        for jf in list(data_path.glob("*.json"))[:50]:
             try:
                 with open(jf, encoding="utf-8") as f:
                     candidates.append(json.load(f))
@@ -155,18 +227,43 @@ def _run_legalbert(agent, ocr_text: str, top_k: int) -> dict:
                 continue
 
     if not candidates:
-        return {"warning": "No candidate documents found in lexai/data/raw/"}
+        return {"warning": "No candidate documents found in lexai/data/raw/ and corpus vectors are empty."}
 
     agent.load_dataset_from_dicts(candidates)
     agent.compute_all_embeddings(batch_size=8)
+    retrieved = agent.retrieve_similar_cases(query_text=ocr_text[:2000], top_k=top_k)
 
-    # Use the OCR text as the query case
-    query_case = {"text": ocr_text[:2000]}  # truncate for embedding
-    retrieved = agent.retrieve_similar_cases(
-        query_text=ocr_text[:2000], top_k=top_k
+    retrieved_cases = []
+    for i, item in enumerate(retrieved[:top_k]):
+        similarity = float(item.get("similarity_score", 0.0) or 0.0)
+        retrieved_cases.append({
+            "case_id": item.get("case_id") or item.get("id") or f"case_{i + 1}",
+            "title": item.get("title") or item.get("case_name") or "Untitled case",
+            "year": item.get("year"),
+            "jurisdiction": item.get("jurisdiction", "unknown"),
+            "similarity_score": similarity,
+            "context_fit": float(item.get("context_fit", similarity) or 0.0),
+            "jurisdiction_score": float(item.get("jurisdiction_score", 0.0) or 0.0),
+            "internal_confidence": float(item.get("internal_confidence", similarity) or 0.0),
+            "uncertainty": float(item.get("uncertainty", max(0.0, 1.0 - similarity)) or 0.0),
+            "trs": item.get("trs", similarity),
+            "alignment_type": item.get("alignment_type", "neutral"),
+            "justification": item.get("justification", "Retrieved by legal similarity search."),
+            "spans": {
+                "target_span": item.get("spans", {}).get("target_span", ""),
+                "candidate_span": item.get("spans", {}).get("candidate_span", ""),
+            },
+        })
+
+    overall = (
+        sum(float(c["similarity_score"]) for c in retrieved_cases) / len(retrieved_cases)
+        if retrieved_cases else 0.0
     )
-
     return {
+        "source": "file-fallback",
         "candidates_searched": len(candidates),
-        "retrieved":           retrieved[:top_k],
+        "retrieved": retrieved[:top_k],
+        "retrieved_cases": retrieved_cases,
+        "overall_external_coherence_score": overall,
+        "short_summary": f"Found {len(retrieved_cases)} related cases using InLegalBERT fallback.",
     }

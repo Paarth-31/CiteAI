@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Index, text
+from sqlalchemy import Index, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR, UUID
 from pgvector.sqlalchemy import Vector
 
@@ -217,6 +217,102 @@ class Citation(db.Model):
 
     def __repr__(self) -> str:
         return f"<Citation {self.title} [{self.year}]>"
+
+
+class CorpusDocument(db.Model):
+    """Precomputed external corpus document used for retrieval.
+
+    Stores legal/bio corpora (HF rows, PDFs, statutes) in PostgreSQL so
+    demo-time retrieval does not depend on rebuilding FAISS in memory.
+    """
+    __tablename__ = "corpus_documents"
+
+    id = db.Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    domain = db.Column(db.String(32), nullable=False, server_default=text("'legal'"))
+    source_type = db.Column(db.String(32), nullable=False)  # hf_dataset | local_pdf | manual
+    source_id = db.Column(db.String(255), nullable=False)   # stable row/file identifier
+
+    title = db.Column(db.String(512), nullable=False)
+    full_text = db.Column(db.Text, nullable=False)
+    summary = db.Column(db.Text)
+    keywords = db.Column(ARRAY(db.Text), default=list)
+    citations = db.Column(ARRAY(db.Text), default=list)
+    metadata_json = db.Column(JSONB, default=dict)
+    created_at = db.Column(db.DateTime(timezone=True), server_default=text("NOW()"), nullable=False)
+    updated_at = db.Column(
+        db.DateTime(timezone=True),
+        server_default=text("NOW()"),
+        onupdate=datetime.utcnow,
+    )
+
+    chunks = db.relationship(
+        "CorpusChunk",
+        backref="corpus_document",
+        lazy=True,
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("source_type", "source_id", name="uq_corpus_source"),
+        Index("ix_corpus_documents_domain", "domain"),
+        Index("ix_corpus_documents_title", "title"),
+        Index("ix_corpus_documents_metadata", "metadata_json", postgresql_using="gin"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<CorpusDocument {self.source_type}:{self.source_id}>"
+
+
+class CorpusChunk(db.Model):
+    """Chunk-level vectors for fast pgvector nearest-neighbor retrieval."""
+    __tablename__ = "corpus_chunks"
+
+    id = db.Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    corpus_document_id = db.Column(
+        UUID(as_uuid=True),
+        db.ForeignKey("corpus_documents.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    chunk_index = db.Column(db.Integer, nullable=False)
+    chunk_text = db.Column(db.Text, nullable=False)
+    metadata_json = db.Column(JSONB, default=dict)
+
+    # sentence-transformer vector for fast retrieval
+    sentence_embedding = db.Column(Vector(384), nullable=False)
+    # optional legal-domain embedding if precomputed later
+    legal_embedding = db.Column(Vector(768), nullable=True)
+
+    created_at = db.Column(db.DateTime(timezone=True), server_default=text("NOW()"), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("corpus_document_id", "chunk_index", name="uq_corpus_chunk_order"),
+        Index("ix_corpus_chunks_document_id", "corpus_document_id"),
+        Index(
+            "ix_corpus_chunks_sentence_emb",
+            "sentence_embedding",
+            postgresql_using="ivfflat",
+            postgresql_with={"lists": 200},
+            postgresql_ops={"sentence_embedding": "vector_cosine_ops"},
+        ),
+        Index(
+            "ix_corpus_chunks_legal_emb",
+            "legal_embedding",
+            postgresql_using="ivfflat",
+            postgresql_with={"lists": 100},
+            postgresql_ops={"legal_embedding": "vector_cosine_ops"},
+        ),
+    )
+
+    def __repr__(self) -> str:
+        return f"<CorpusChunk doc={self.corpus_document_id} idx={self.chunk_index}>"
 
 
 class Chat(db.Model):

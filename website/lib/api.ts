@@ -286,12 +286,11 @@ export interface CitationNode {
 
 export interface CitationNodesResponse {
   nodes: CitationNode[];
-  stats: {
-    totalNodes: number;
-    filteredNodes: number;
-    showingTop: number;
-    hasMore: boolean;
-  };
+  edges: { source: string; target: string }[];
+  total_nodes: number;
+  filtered_nodes: number;
+  showing_top: number;
+  has_more: boolean;
 }
 
 export async function apiGetCitationNodes(
@@ -306,7 +305,7 @@ export async function apiGetCitationNodes(
   const qs = new URLSearchParams();
   if (params?.limit)          qs.set('limit', String(params.limit));
   if (params?.layout)         qs.set('layout', params.layout);
-  if (params?.minCitations != null) qs.set('minCitations', String(params.minCitations));
+  if (params?.minCitations != null) qs.set('min_citations', String(params.minCitations));
   if (params?.year)           qs.set('year', params.year);
   const query = qs.toString() ? `?${qs}` : '';
   return apiFetch<CitationNodesResponse>(`/api/ocr/citation-nodes/${documentId}${query}`);
@@ -315,7 +314,11 @@ export async function apiGetCitationNodes(
 export async function apiGetCitationGraph(
   documentId: string,
 ): Promise<{ nodes: CitationNode[]; edges: { source: string; target: string }[] }> {
-  return apiFetch(`/api/ocr/citation-graph/${documentId}`);
+  const response = await apiFetch<{
+    success: boolean;
+    graph: { nodes: CitationNode[]; edges: { source: string; target: string }[] };
+  }>(`/api/ocr/citation-graph/${documentId}`);
+  return response.graph;
 }
 
 export interface OcrQueryResponse {
@@ -381,6 +384,63 @@ export interface ExternalInferenceResponse {
   short_summary: string;
 }
 
+interface ExternalInferenceRawCase {
+  case_id?: string;
+  id?: string;
+  title?: string;
+  case_name?: string;
+  year?: number | null;
+  jurisdiction?: string;
+  similarity_score?: number;
+  context_fit?: number;
+  jurisdiction_score?: number;
+  internal_confidence?: number;
+  uncertainty?: number;
+  trs?: number | { score: number; factors: Record<string, number> };
+  alignment_type?: 'supports' | 'contradicts' | 'neutral';
+  justification?: string;
+  spans?: { target_span?: string; candidate_span?: string };
+}
+
+function normalizeExternalInference(raw: {
+  retrieved_cases?: ExternalInferenceRawCase[];
+  retrieved?: ExternalInferenceRawCase[];
+  overall_external_coherence_score?: number;
+  short_summary?: string;
+}): ExternalInferenceResponse {
+  const retrieved = raw.retrieved_cases ?? raw.retrieved ?? [];
+  const normalizedCases: ExternalInferenceResultCase[] = retrieved.map((c, i) => ({
+    case_id: c.case_id ?? c.id ?? `case_${i + 1}`,
+    title: c.title ?? c.case_name ?? 'Untitled case',
+    year: c.year ?? null,
+    jurisdiction: c.jurisdiction ?? 'unknown',
+    similarity_score: c.similarity_score ?? 0,
+    context_fit: c.context_fit ?? 0,
+    jurisdiction_score: c.jurisdiction_score ?? 0,
+    internal_confidence: c.internal_confidence ?? 0,
+    uncertainty: c.uncertainty ?? 0,
+    trs: c.trs ?? (c.similarity_score ?? 0),
+    alignment_type: c.alignment_type ?? 'neutral',
+    justification: c.justification ?? 'Retrieved by similarity search.',
+    spans: {
+      target_span: c.spans?.target_span ?? '',
+      candidate_span: c.spans?.candidate_span ?? '',
+    },
+  }));
+
+  return {
+    target: {
+      case_id: 'document',
+      title: 'Current document',
+      year: null,
+      jurisdiction: 'unknown',
+    },
+    retrieved_cases: normalizedCases,
+    overall_external_coherence_score: raw.overall_external_coherence_score ?? 0,
+    short_summary: raw.short_summary ?? 'External inference results generated.',
+  };
+}
+
 /**
  * fetchExternalInference — called by ExternalInferencePanel.tsx
  *
@@ -409,8 +469,20 @@ export async function fetchExternalInference(
     document_id: string;
     top_k: number;
     results: {
-      legalbert?: ExternalInferenceResponse;
-      biobert?:   ExternalInferenceResponse;
+      legalbert?: {
+        retrieved_cases?: ExternalInferenceRawCase[];
+        retrieved?: ExternalInferenceRawCase[];
+        overall_external_coherence_score?: number;
+        short_summary?: string;
+        error?: string;
+      };
+      biobert?: {
+        retrieved_cases?: ExternalInferenceRawCase[];
+        retrieved?: ExternalInferenceRawCase[];
+        overall_external_coherence_score?: number;
+        short_summary?: string;
+        error?: string;
+      };
     };
   }>(`/api/inference/similar/${documentId}`, {
     method: 'POST',
@@ -424,7 +496,10 @@ export async function fetchExternalInference(
   if (!result) {
     throw new Error(`No results returned for model: ${model}`);
   }
-  return result;
+  if (result.error) {
+    throw new Error(result.error);
+  }
+  return normalizeExternalInference(result);
 }
 
 // ── Chats ─────────────────────────────────────────────────────────────────────

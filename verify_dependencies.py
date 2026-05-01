@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Dependency Verification Script for Eudia Legal AI System
+Dependency Verification Script for CiteAI
 
 This script checks if all required dependencies are installed
 and provides a detailed report.
@@ -87,7 +87,7 @@ def check_package(package_name: str, min_version: str) -> Tuple[bool, str, str]:
 def main():
     """Run dependency verification."""
     print("=" * 70)
-    print("EUDIA LEGAL AI SYSTEM - DEPENDENCY VERIFICATION")
+    print("CiteAI - DEPENDENCY VERIFICATION")
     print("=" * 70)
     print()
     
@@ -131,7 +131,7 @@ def main():
     if all_installed:
         print("✓ ALL REQUIRED DEPENDENCIES ARE INSTALLED!")
         print()
-        print("You can now run the Eudia Legal AI system.")
+        print("You can now run the CiteAI.")
         print()
         print("Quick start:")
         print("  python lexai/quick_start_inlegalbert.py")
