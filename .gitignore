@@ -1,0 +1,195 @@
+# =============================================================================
+# Python / Flask Backend
+# =============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Distribution / packaging
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+myenv/
+myenv2/
+venv/
+env/
+.venv/
+.env/
+ENV/
+env.bak/
+venv.bak/
+
+# Flask / Config / Secrets
+instance/
+backend/instance/
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.cfg
+!setup.cfg
+secrets.json
+config.secret.*
+*.pem
+*.key
+*.cert
+*.crt
+
+# Database & SQLite files
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Backend storage, uploads, and sessions
+backend/storage/
+backend/uploads/
+backend/app/uploads/
+storage/
+uploads/
+flask_session/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# =============================================================================
+# Node / Next.js Frontend
+# =============================================================================
+node_modules/
+website/node_modules/
+.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# Next.js build outputs
+.next/
+website/.next/
+out/
+website/out/
+website/build/
+
+# Turbo & Vercel
+.turbo/
+website/.turbo/
+.vercel/
+website/.vercel/
+
+# TypeScript cache
+*.tsbuildinfo
+next-env.d.ts
+
+# Visual / UI edits
+visual-edits/
+website/visual-edits/
+
+# =============================================================================
+# Machine Learning, Embeddings & Large Models
+# =============================================================================
+*.pt
+*.pth
+*.onnx
+*.bin
+*.h5
+*.safetensors
+*.ckpt
+*.faiss
+*.index
+
+# Model directories & HuggingFace cache
+models/
+lexai/models/
+backend/models/
+.cache/
+huggingface/
+.huggingface/
+HF_HOME/
+wandb/
+
+# Pipeline document staging / temporary stores
+PIPELINE/doc-store/
+PIPELINE/outputs/*.pdf
+corpus/bio_pdfs/
+
+# =============================================================================
+# Testing & Code Quality
+# =============================================================================
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+website/coverage/
+coverage/
+.mypy_cache/
+.pyre/
+.pytype/
+.ruff_cache/
+
+# =============================================================================
+# Editors & Operating System
+# =============================================================================
+# Vim swap & persistent undo files
+*.swp
+.*.swp
+*.swo
+.*.swo
+*.un~
+.*.un~
+*~
+.*~
+
+# VS Code / JetBrains / Sublime
+.vscode/
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Temporary files & archives
+tmp/
+temp/
+*.tmp
+*.bak
+*.zip
+*.tar.gz
+*.tgz
+*.rar
+*.7z
