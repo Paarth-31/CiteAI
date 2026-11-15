@@ -16,6 +16,8 @@ eggs/
 .eggs/
 lib/
 lib64/
+!website/lib/
+!website/lib/*.ts
 parts/
 sdist/
 var/
@@ -125,17 +127,17 @@ website/visual-edits/
 
 # Model directories & HuggingFace cache
 models/
-lexai/models/
 backend/models/
+backend/resources/generated/
+backend/resources/corpus/vector_cache/
 .cache/
 huggingface/
 .huggingface/
 HF_HOME/
 wandb/
 
-# Pipeline document staging / temporary stores
-PIPELINE/doc-store/
-PIPELINE/outputs/*.pdf
+# Document staging / temporary stores
+corpus/legal_pdfs/
 corpus/bio_pdfs/
 
 # =============================================================================

@@ -15,6 +15,7 @@ import networkx as nx
 from flask import Blueprint, current_app, jsonify, request
 from flask_jwt_extended import current_user, verify_jwt_in_request
 from sqlalchemy import func, text
+from sqlalchemy.exc import SQLAlchemyError
 
 from ..extensions import db
 from ..models import BaselineCase, Document
@@ -36,6 +37,10 @@ def global_search():
     if not q or len(q) < 2:
         return jsonify({"error": "Query must be at least 2 characters"}), HTTPStatus.BAD_REQUEST
 
+    page = min(max(request.args.get("page", default=0, type=int) or 0, 0), 100)
+    page_size = 10
+    fetch_limit = (page + 1) * page_size + 1
+
     results = []
 
     # ── Baseline cases — tsvector FTS with ranking ───────────────────────────
@@ -55,18 +60,26 @@ def global_search():
                 )
             )
             .order_by(text("rank DESC"))
-            .limit(10)
+            .limit(fetch_limit)
             .all()
         )
-    except Exception:
-        # Fallback to ILIKE if tsvector not yet populated
-        cases = [
-            (c, 0.0)
-            for c in BaselineCase.query.filter(
-                BaselineCase.title.ilike(f"%{q}%") |
-                BaselineCase.full_text.ilike(f"%{q}%")
-            ).limit(10).all()
-        ]
+    except SQLAlchemyError as exc:
+        # PostgreSQL marks the transaction failed after a SQL error; the
+        # fallback cannot run until the session is rolled back.
+        db.session.rollback()
+        current_app.logger.warning("Full-text baseline search failed; using ILIKE: %s", exc)
+        try:
+            cases = [
+                (c, 0.0)
+                for c in BaselineCase.query.filter(
+                    BaselineCase.title.ilike(f"%{q}%") |
+                    BaselineCase.full_text.ilike(f"%{q}%")
+                ).limit(fetch_limit).all()
+            ]
+        except SQLAlchemyError:
+            db.session.rollback()
+            current_app.logger.exception("Local search database unavailable")
+            return jsonify({"error": "Local search database unavailable"}), HTTPStatus.SERVICE_UNAVAILABLE
 
     for case, rank in cases:
         snippet = _extract_snippet(case.full_text, q)
@@ -103,23 +116,31 @@ def global_search():
                         ),
                     )
                     .order_by(text("rank DESC"))
-                    .limit(10)
+                    .limit(fetch_limit)
                     .all()
                 )
-            except Exception:
-                docs = [
-                    (d, 0.0)
-                    for d in Document.query.filter(
-                        Document.user_id == uid,
-                        Document.title.ilike(f"%{q}%"),
-                    ).limit(10).all()
-                ]
+            except SQLAlchemyError as exc:
+                db.session.rollback()
+                current_app.logger.warning("Full-text document search failed; using title search: %s", exc)
+                try:
+                    docs = [
+                        (d, 0.0)
+                        for d in Document.query.filter(
+                            Document.user_id == uid,
+                            Document.title.ilike(f"%{q}%"),
+                        ).limit(fetch_limit).all()
+                    ]
+                except SQLAlchemyError:
+                    db.session.rollback()
+                    current_app.logger.exception("Local document search database unavailable")
+                    return jsonify({"error": "Local document search database unavailable"}), HTTPStatus.SERVICE_UNAVAILABLE
 
             for doc, rank in docs:
                 results.append({
                     "id":     str(doc.id),
                     "title":  doc.title,
                     "type":   "document",
+                    "file_url": doc.file_url,
                     "rank":   float(rank),
                     "status": doc.status,
                     "snippet": _extract_snippet(doc.ocr_text or "", q),
@@ -130,7 +151,9 @@ def global_search():
     # Sort combined results by rank
     results.sort(key=lambda r: r.get("rank", 0), reverse=True)
 
-    return jsonify({"results": results, "count": len(results)})
+    start = page * page_size
+    return jsonify({"results": results[start:start + page_size], "count": len(results),
+                    "has_more": len(results) > start + page_size, "page": page})
 
 
 # ── Baseline list (sidebar) ───────────────────────────────────────────────────

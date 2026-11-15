@@ -10,8 +10,9 @@ from flask_jwt_extended import current_user, jwt_required
 from werkzeug.utils import secure_filename
 
 from ..extensions import db
-from ..models import Document
+from ..models import CorpusDocument, Document
 from ..schemas import document_to_dict
+from ..services.document_pipeline import add_document_to_corpus
 
 bp = Blueprint("documents", __name__, url_prefix="/api/documents")
 
@@ -86,6 +87,29 @@ def upload_document_file():
         "document": document_to_dict(document),
         "message":  "File uploaded. Call /api/ocr/process/<id> to start processing.",
     }), HTTPStatus.CREATED
+
+
+# ── Create (URL-based, no file) ───────────────────────────────────────────────
+@bp.post("/<document_id>/add-to-db")
+@jwt_required()
+def add_to_db(document_id: str):
+    """OCR and index an uploaded PDF into the owner's local PostgreSQL corpus."""
+    document = _get_or_404(document_id)
+    if document is None:
+        return jsonify({"error": "Document not found"}), HTTPStatus.NOT_FOUND
+    if not document.file_url.startswith("/uploads/"):
+        return jsonify({"error": "Upload a PDF before adding it to the database"}), HTTPStatus.BAD_REQUEST
+    file_path = Path(current_app.config["UPLOAD_FOLDER"]) / document.file_url.removeprefix("/uploads/")
+    if not file_path.is_file():
+        return jsonify({"error": "Uploaded PDF not found"}), HTTPStatus.NOT_FOUND
+    try:
+        return jsonify({"success": True, **add_document_to_corpus(document, file_path)})
+    except Exception:
+        db.session.rollback()
+        document.update_status("failed")
+        db.session.commit()
+        current_app.logger.exception("Add to db failed for %s", document_id)
+        return jsonify({"error": "OCR or database indexing failed; you can retry."}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 
 # ── Create (URL-based, no file) ───────────────────────────────────────────────
@@ -171,6 +195,9 @@ def delete_document(document_id: str):
             except OSError:
                 pass  # non-fatal
 
+    corpus = CorpusDocument.query.filter_by(source_type="manual", source_id=str(doc.id)).one_or_none()
+    if corpus is not None:
+        db.session.delete(corpus)
     db.session.delete(doc)
     db.session.commit()
     return jsonify({"success": True}), HTTPStatus.OK

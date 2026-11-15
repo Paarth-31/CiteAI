@@ -68,7 +68,7 @@ class User(db.Model):
 # ─────────────────────────────────────────────────────────────────────────────
 
 class BaselineCase(db.Model):
-    """Pre-seeded legal cases from lexai/data/processed/ JSON files.
+    """Pre-seeded legal cases from backend resources.
 
     PostgreSQL features:
       - full_text_tsv  : TSVECTOR column auto-updated by trigger; GIN indexed

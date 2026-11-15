@@ -59,10 +59,11 @@ Use double line breaks between different violations to ensure good spacing.
     const text = response.text();
 
     return NextResponse.json({ result: text });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
     console.error('Error in cite-violations API:', error);
     return NextResponse.json(
-      { error: error.message || 'An error occurred during analysis.' },
+      { error: message || 'An error occurred during analysis.' },
       { status: 500 }
     );
   }

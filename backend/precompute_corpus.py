@@ -18,18 +18,12 @@ Notes:
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
-
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-
 import sys
 from pathlib import Path
 
 _BACKEND_ROOT  = Path(__file__).resolve().parent      # .../CiteAI/backend/
 _CITEAI_ROOT   = _BACKEND_ROOT.parent                 # .../CiteAI/
-_LEXAI_ROOT    = _CITEAI_ROOT / "lexai"               # .../CiteAI/lexai/
-
-for _p in [str(_CITEAI_ROOT), str(_LEXAI_ROOT)]:
+for _p in [str(_CITEAI_ROOT), str(_BACKEND_ROOT)]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
@@ -61,16 +55,12 @@ def _iter_hf_rows(dataset_name: str, split: str, limit: int | None):
 
 
 def _iter_pdf_rows(pdf_dir: Path):
-    from lexai.agents.ocr_agent import (
-        extract_citations,
-        extract_keywords,
-        extract_text_from_pdf,
-        extract_title,
-    )
+    from app.services.legal_pipeline import extract_pdf
 
     for pdf_file in sorted(pdf_dir.glob("*.pdf")):
         try:
-            text = extract_text_from_pdf(str(pdf_file)).strip()
+            extracted = extract_pdf(pdf_file)
+            text = extracted["full_text"]
         except Exception:
             continue
         if not text:
@@ -78,11 +68,11 @@ def _iter_pdf_rows(pdf_dir: Path):
         yield {
             "source_type": "local_pdf",
             "source_id": pdf_file.name,
-            "title": extract_title(text)[:500],
+            "title": extracted["title"][:500],
             "full_text": text,
             "summary": None,
-            "keywords": extract_keywords(text, top_n=40),
-            "citations": extract_citations(text),
+            "keywords": extracted["keywords"][:40],
+            "citations": extracted["citations"],
             "metadata_json": {"pdf_path": str(pdf_file)},
         }
 
@@ -118,11 +108,8 @@ def _upsert_document(domain: str, payload: dict) -> CorpusDocument:
 
 
 def _build_chunks(text: str, chunk_size: int, chunk_overlap: int) -> list[str]:
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-    )
-    return splitter.split_text(text)
+    from app.services.legal_pipeline import chunk_text
+    return [item["text"] for item in chunk_text(text, chunk_size, chunk_overlap)]
 
 
 def main():

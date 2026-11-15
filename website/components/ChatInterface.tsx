@@ -9,6 +9,7 @@ interface Message {
     role: 'user' | 'assistant';
     content: string;
     timestamp: Date;
+    passages?: Array<{ index: number; text: string; score: number }>;
 }
 
 interface ChatInterfaceProps {
@@ -57,6 +58,7 @@ export default function ChatInterface({ documentId }: ChatInterfaceProps) {
                 query: string;
                 answer: string;
                 title: string;
+                passages?: Array<{ index: number; text: string; score: number }>;
             }>(`/api/ocr/query/${documentId}`, {
                 method: 'POST',
                 body: JSON.stringify({ query: userMessage.content }),
@@ -67,6 +69,7 @@ export default function ChatInterface({ documentId }: ChatInterfaceProps) {
                 role: 'assistant',
                 content: response.answer || 'Query processed, but no valid data generated. Please rephrase your input.',
                 timestamp: new Date(),
+                passages: response.passages,
             };
             setMessages(prev => [...prev, aiMessage]);
         } catch (error) {
@@ -74,7 +77,7 @@ export default function ChatInterface({ documentId }: ChatInterfaceProps) {
             const errorMessage: Message = {
                 id: (Date.now() + 1).toString(),
                 role: 'assistant',
-                content: 'Error encountered during NLP processing. Please try again.',
+                content: error instanceof Error ? error.message : 'Document query failed. Please try again.',
                 timestamp: new Date(),
             };
             setMessages(prev => [...prev, errorMessage]);
@@ -123,6 +126,16 @@ export default function ChatInterface({ documentId }: ChatInterfaceProps) {
                                     }`}
                             >
                                 <p className="text-[15px] whitespace-pre-wrap leading-relaxed font-[var(--font-sans)]">{message.content}</p>
+                                {message.passages && message.passages.length > 0 && (
+                                  <details className="mt-3 text-xs text-[#a8b6c7]">
+                                    <summary className="cursor-pointer">Document passages used</summary>
+                                    {message.passages.map((passage) => (
+                                      <p key={passage.index} className="mt-2 border-l border-[#29b6f6] pl-2">
+                                        [Passage {passage.index + 1}] {passage.text.slice(0, 300)}
+                                      </p>
+                                    ))}
+                                  </details>
+                                )}
                             </div>
                             <span className="text-[10px] text-[#6b7a8d] font-[var(--font-mono)] px-1 uppercase tracking-widest">{formatTime(message.timestamp)}</span>
                         </div>

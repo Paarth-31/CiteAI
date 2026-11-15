@@ -15,7 +15,4 @@ def ensure_project_root() -> Path:
     root_str = str(root)
     if root_str not in sys.path:
         sys.path.insert(0, root_str)
-    lexai_str = str(root / "lexai")
-    if lexai_str not in sys.path:
-        sys.path.insert(0, lexai_str)
     return root

@@ -33,12 +33,12 @@ def seed_database() -> None:
 
 @cli.command("warmup-models")
 def warmup_models() -> None:
-    """Pre-load InLegalBERT and sentence-transformer into the model registry."""
+    """Pre-load the canonical InLegalBERT and sentence-transformer encoders."""
     from app.extensions import model_registry
 
     click.echo("Loading InLegalBERT...")
     try:
-        model_registry.get_legalbert_agent()
+        model_registry.get_legalbert_encoder()
         click.echo("  InLegalBERT loaded.")
     except Exception as exc:
         click.echo(f"  InLegalBERT failed: {exc}")
@@ -64,6 +64,13 @@ def status() -> None:
 
     from app.extensions import model_registry
     click.echo(f"Models loaded : {model_registry.loaded_models() or 'none yet'}")
+
+
+# ``flask --app manage`` loads the ``app`` object, not the separate FlaskGroup
+# below. Expose the same project commands through both entry points.
+app.cli.add_command(seed_database)
+app.cli.add_command(warmup_models)
+app.cli.add_command(status)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,6 @@
 // "use client"
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable react-hooks/set-state-in-effect */
 
 // import React, { useState, useEffect, useRef } from 'react';
 // import { ZoomIn, ZoomOut, RotateCcw, Move, MousePointer } from 'lucide-react';
@@ -427,7 +429,6 @@ function computeLayout(rawNodes: CitationNode[], edges: { source: string; target
 
   // Run force-directed simulation to de-overlap
   const pos = rawNodes.map(n => ({ id: n.id, x: positions[n.id]?.x ?? cx, y: positions[n.id]?.y ?? cy }));
-  const edgeSet = new Set(edges.map(e => `${e.source}:${e.target}`));
 
   for (let iter = 0; iter < 120; iter++) {
     const forces: Record<string, { fx: number; fy: number }> = {};
@@ -465,7 +466,6 @@ function computeLayout(rawNodes: CitationNode[], edges: { source: string; target
       if (n.id === rootId) return;
       const rel = relevance[n.id] ?? 0.3;
       const dx = cx - n.x, dy = cy - n.y;
-      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
       const g = 0.008 * (1 - rel + 0.2);
       forces[n.id].fx += dx * g;
       forces[n.id].fy += dy * g;

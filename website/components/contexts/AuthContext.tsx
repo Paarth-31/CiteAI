@@ -1,5 +1,7 @@
 // "use client"
 
+/* eslint-disable react-hooks/set-state-in-effect */
+
 // import React, { createContext, useContext, ReactNode, useCallback, useEffect, useState } from 'react';
 // import { useRouter } from 'next/navigation';
 // import { toast } from 'sonner';
@@ -180,7 +182,7 @@ import {
   fetchCurrentUser,
   refreshAccessToken,
 } from '@/lib/auth';
-import { moveTokensToSession, getRefreshTokenValue, storeTokens } from '@/lib/api';
+import { getRefreshTokenValue } from '@/lib/api';
 
 interface User {
   id: string;
@@ -289,6 +291,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const updateProfile = async (name: string) => {
+    void name;
     toast.success("Profile updated successfully!");
     setAuthModalView(null);
     await loadSession();

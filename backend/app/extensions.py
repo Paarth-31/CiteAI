@@ -4,28 +4,56 @@ from __future__ import annotations
 import threading
 from typing import Any
 
+import numpy as np
+
 from flask import Flask
 from flask_bcrypt import Bcrypt
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
-from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
 
 # ── Core extensions ───────────────────────────────────────────────────────────
 db      = SQLAlchemy()
-migrate = Migrate()
 bcrypt  = Bcrypt()
 jwt     = JWTManager()
 cors    = CORS()
 
 
 # ── Model registry ─────────────────────────────────────────────────────────────
+class InLegalBERTEncoder:
+    """Small backend-owned InLegalBERT encoder with masked mean pooling."""
+
+    def __init__(self, model_name: str, device: str, max_length: int) -> None:
+        from transformers import AutoModel, AutoTokenizer
+        self.model_name = model_name
+        self.device = device
+        self.max_length = max_length
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.model = AutoModel.from_pretrained(model_name).to(device)
+        self.model.eval()
+
+    def encode(self, texts: list[str], batch_size: int = 8) -> np.ndarray:
+        import torch
+        result = []
+        for start in range(0, len(texts), batch_size):
+            tokens = self.tokenizer(texts[start:start + batch_size], return_tensors="pt", truncation=True,
+                                    max_length=self.max_length, padding=True)
+            tokens = {key: value.to(self.device) for key, value in tokens.items()}
+            with torch.no_grad():
+                hidden = self.model(**tokens).last_hidden_state
+            mask = tokens["attention_mask"].unsqueeze(-1).expand_as(hidden).float()
+            pooled = (hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1e-9)
+            values = pooled.detach().cpu().numpy()
+            result.extend(values / (np.linalg.norm(values, axis=1, keepdims=True) + 1e-12))
+        return np.asarray(result, dtype=np.float32)
+
+
 class ModelRegistry:
-    """Thread-safe lazy loader for InLegalBERT and sentence-transformers."""
+    """Thread-safe lazy loader for the two canonical backend encoders."""
 
     def __init__(self) -> None:
         self._lock             = threading.Lock()
-        self._legalbert_agent: Any | None = None
+        self._legalbert_encoder: Any | None = None
         self._sentence_model:  Any | None = None
         self._app: Flask | None = None
 
@@ -33,27 +61,17 @@ class ModelRegistry:
         self._app = app
 
     # ── InLegalBERT ────────────────────────────────────────────────────────
-    def get_legalbert_agent(self):
-        if self._legalbert_agent is not None:
-            return self._legalbert_agent
+    def get_legalbert_encoder(self):
+        if self._legalbert_encoder is not None:
+            return self._legalbert_encoder
         with self._lock:
-            if self._legalbert_agent is not None:
-                return self._legalbert_agent
-            import sys
-            from pathlib import Path
-            if self._app:
-                project_root = Path(self._app.root_path).parent.parent
-                for p in [str(project_root), str(project_root / "lexai")]:
-                    if p not in sys.path:
-                        sys.path.insert(0, p)
-            from lexai.agents.inlegalbert_external_agent import InLegalBERTExternalAgent
+            if self._legalbert_encoder is not None:
+                return self._legalbert_encoder
             device     = self._resolve_device()
             model_name = self._app.config.get("LEGALBERT_MODEL_NAME", "law-ai/InLegalBERT") if self._app else "law-ai/InLegalBERT"
             max_length = int(self._app.config.get("LEGALBERT_MAX_LENGTH", 512) if self._app else 512)
-            self._legalbert_agent = InLegalBERTExternalAgent(
-                model_name=model_name, device=device, max_length=max_length,
-            )
-            return self._legalbert_agent
+            self._legalbert_encoder = InLegalBERTEncoder(model_name, device, max_length)
+            return self._legalbert_encoder
 
     # ── Sentence-transformer ───────────────────────────────────────────────
     def get_sentence_model(self):
@@ -80,9 +98,15 @@ class ModelRegistry:
 
     def loaded_models(self) -> list[str]:
         loaded = []
-        if self._legalbert_agent is not None: loaded.append("legalbert")
+        if self._legalbert_encoder is not None: loaded.append("legalbert")
         if self._sentence_model  is not None: loaded.append("sentence-transformer")
         return loaded
+
+    def legalbert_model_name(self) -> str:
+        return self._app.config.get("LEGALBERT_MODEL_NAME", "law-ai/InLegalBERT") if self._app else "law-ai/InLegalBERT"
+
+    def sentence_model_name(self) -> str:
+        return self._app.config.get("SENTENCE_MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2") if self._app else "sentence-transformers/all-MiniLM-L6-v2"
 
 
 model_registry = ModelRegistry()
@@ -92,7 +116,6 @@ model_registry = ModelRegistry()
 def init_extensions(app: Flask) -> None:
     """Bind all extensions to the Flask app instance."""
     db.init_app(app)
-    migrate.init_app(app, db)
     bcrypt.init_app(app)
     jwt.init_app(app)
 

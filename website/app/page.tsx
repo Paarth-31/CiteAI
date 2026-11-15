@@ -187,9 +187,18 @@ function HomePage() {
     setSelectedNodeIds(selectedNodeIds.filter(nodeId => nodeId !== id));
   };
 
-  const handleUploadComplete = (documentId: string) => {
-    showToast({ message: 'Document processed — mapping sources', variant: 'success' });
-    handleDocumentSelect(documentId);
+  const handleUploadComplete = (documentId: string, mode: 'analysis' | 'database') => {
+    showToast({ message: mode === 'database' ? 'Document added to local database' : 'Document processed — mapping sources', variant: 'success' });
+    setViewMode(mode === 'database' ? 'chat' : 'citation');
+    if (mode === 'database') {
+      setSelectedDocumentId(documentId);
+      setNodes([]);
+      setEdges([]);
+      setSelectedItems([]);
+      setSelectedNodeIds([]);
+    } else {
+      handleDocumentSelect(documentId);
+    }
   };
 
   const handleBackToUpload = () => {
@@ -275,7 +284,7 @@ function HomePage() {
                   )
                 )}
                 {viewMode === 'chat' && (
-                  <ChatInterface documentId={selectedDocumentId} />
+                  <ChatInterface key={selectedDocumentId} documentId={selectedDocumentId} />
                 )}
                 {viewMode === 'internal' && (
                   <InternalAnalysisPanel documentId={selectedDocumentId} />

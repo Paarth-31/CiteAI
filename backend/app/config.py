@@ -21,21 +21,31 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.absolute()
 
 
+def _postgresql_url(url: str) -> str:
+    """Keep bare PostgreSQL URLs on the psycopg2 driver we install.
+
+    SQLAlchemy 2.1 changed the default for ``postgresql://`` to psycopg 3.
+    Explicit driver URLs remain untouched.
+    """
+    prefix = "postgresql://"
+    return f"postgresql+psycopg2://{url[len(prefix):]}" if url.startswith(prefix) else url
+
+
 class BaseConfig:
     # ── Main database (citeai_main) ───────────────────────────────────────────
     # Stores: documents, citations, chats, messages, baseline_cases
-    SQLALCHEMY_DATABASE_URI = os.getenv(
+    SQLALCHEMY_DATABASE_URI = _postgresql_url(os.getenv(
         "DATABASE_URL",
         "postgresql+psycopg2://citeai:citeai_pass@localhost:5432/citeai_main",
-    )
+    ))
 
     # ── Auth database (citeai_auth) ───────────────────────────────────────────
     # Stores: users only — isolated so auth data never touches main DB
     SQLALCHEMY_BINDS = {
-        "auth": os.getenv(
+        "auth": _postgresql_url(os.getenv(
             "AUTH_DATABASE_URL",
             "postgresql+psycopg2://citeai:citeai_pass@localhost:5432/citeai_auth",
-        )
+        ))
     }
 
     SQLALCHEMY_TRACK_MODIFICATIONS = False
@@ -100,9 +110,18 @@ class ProductionConfig(BaseConfig):
 
 class TestingConfig(BaseConfig):
     TESTING = True
-    # Use SQLite in-memory for tests — override per-test if needed
-    SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
-    SQLALCHEMY_BINDS        = {"auth": "sqlite:///:memory:"}
+    # SQLite cannot compile PostgreSQL JSONB/TSVECTOR/pgvector columns. Tests
+    # must use an isolated PostgreSQL database with the same extensions.
+    SQLALCHEMY_DATABASE_URI = _postgresql_url(os.getenv(
+        "TEST_DATABASE_URL",
+        "postgresql+psycopg2://citeai:citeai_pass@localhost:5432/citeai_main_test",
+    ))
+    SQLALCHEMY_BINDS = {
+        "auth": _postgresql_url(os.getenv(
+            "TEST_AUTH_DATABASE_URL",
+            "postgresql+psycopg2://citeai:citeai_pass@localhost:5432/citeai_auth_test",
+        ))
+    }
 
 
 config_by_name = {

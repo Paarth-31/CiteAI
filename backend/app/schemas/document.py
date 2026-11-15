@@ -26,6 +26,7 @@ def document_to_dict(
         payload["citations"] = [citation_to_dict(c) for c in document.citations]
 
     if include_ocr:
+        payload["ocrText"]         = document.ocr_text
         payload["ocrMetadata"]      = document.ocr_metadata
         payload["hasOcrText"]       = bool(document.ocr_text)
         payload["hasCitationGraph"] = bool(document.citation_graph)

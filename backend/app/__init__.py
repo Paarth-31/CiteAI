@@ -7,14 +7,17 @@ from http import HTTPStatus
 from dotenv import load_dotenv
 from flask import Flask, jsonify, send_from_directory
 
-from .config import config_by_name
+# Config classes read environment variables when imported. Load .env before
+# callers can import app.config, not only when create_app() is invoked.
+load_dotenv()
+
 from .extensions import init_extensions
 from .routes import register_blueprints
 
 
 def create_app(config_name: str | None = None) -> Flask:
     """Application factory used by Flask CLI and tests."""
-    load_dotenv()
+    from .config import config_by_name
 
     app = Flask(__name__)
 

@@ -2,11 +2,32 @@
 
 This folder contains the Flask backend that powers authentication, document storage, citation management and chat persistence for the CiteAI platform.
 
+For the full end-to-end runbook, see [NEXT_STEPS.md](./NEXT_STEPS.md). The canonical execution path is [legal_pipeline.py](./app/services/legal_pipeline.py): OCR/text extraction → graph and embedding materialization → InLegalBERT and sentence-transformer inference → pgvector retrieval → internal analysis and transparent scoring.
+
 ## Prerequisites
 
 - Python 3.11+
-- PostgreSQL (recommended) or another database supported by SQLAlchemy
+- PostgreSQL 15+ with the `pgvector` extension
 - Virtual environment tooling (`venv`, `conda`, etc.)
+
+For scanned PDFs, install the system `tesseract-ocr` package as well. Embedded
+PDF text is always attempted before the page-image OCR fallback.
+
+Set `GEMINI_API_KEY` in `backend/.env` to enable passage-grounded document Q&A
+and the detailed internal report. `GEMINI_MODEL` defaults to `gemini-2.5-flash`;
+the Python SDK is included in `requirements.txt`. With no key, deterministic
+internal review still runs, but chat Q&A returns a configuration error.
+
+The upload screen offers two paths after saving a PDF:
+
+- **Analyze document**: `POST /api/ocr/process/<id>` performs OCR, citations,
+  embeddings, internal review, and corpus retrieval. It backfills old documents
+  that have OCR/graph data but are missing downstream artifacts.
+- **Add to db**: `POST /api/documents/<id>/add-to-db` performs OCR (including
+  scanned-page Tesseract fallback), embeds chunks, and saves them to
+  `corpus_documents`/`corpus_chunks` plus the owner's searchable `documents`
+  row. It does not create citation graph nodes or citation rows. Manual corpus
+  documents are owner-scoped and are removed when the upload is deleted.
 
 ## Quick start
 
@@ -22,8 +43,8 @@ This folder contains the Flask backend that powers authentication, document stor
    python -m venv .venv
    .venv\Scripts\activate  # Windows PowerShell
    pip install -r requirements.txt
-   flask db upgrade
-   flask run --port 8000
+   python init_db.py
+   flask --app manage run --port 8000
    ```
 
    The API will be available at `http://127.0.0.1:8000`.
@@ -53,15 +74,12 @@ backend/
 └── README.md
 ```
 
-## Database migrations
+## Database initialisation
 
-The project uses `Flask-Migrate` (Alembic) for schema management. Typical workflow:
-
-```bash
-flask db init       # only once
-flask db migrate -m "Add chats"
-flask db upgrade
-```
+`python init_db.py` is the supported bootstrap command. It creates the main and
+auth schemas separately, enables PostgreSQL extensions, creates vector/FTS
+indexes, and seeds backend corpus fixtures. Do not use the historical Alembic
+chain: it predates the split auth database and UUID/pgvector schema.
 
 ## Authentication
 
@@ -76,9 +94,16 @@ Authentication relies on JWT access and refresh tokens returned by `/api/auth/lo
 - `POST /api/auth/logout`
 - `GET /api/documents`
 - `POST /api/documents`
+- `POST /api/documents/upload`
 - `GET /api/documents/<id>`
 - `PUT /api/documents/<id>`
 - `DELETE /api/documents/<id>`
+- `POST /api/ocr/process/<id>` — complete extraction, embedding, analysis, and retrieval pipeline
+- `GET /api/ocr/internal-analysis/<id>`
+- `POST /api/ocr/query/<id>` — evidence-only query over persisted OCR text
+- `GET /api/ocr/citation-graph/<id>`
+- `POST /api/inference/similar/<id>`
+- `GET /api/inference/similar/<id>`
 - `GET /api/documents/<id>/citations`
 - `POST /api/documents/<id>/citations`
 - `DELETE /api/documents/<id>/citations/<citation_id>`
@@ -86,8 +111,6 @@ Authentication relies on JWT access and refresh tokens returned by `/api/auth/lo
 - `POST /api/chats`
 - `GET /api/chats/<id>`
 - `POST /api/chats/<id>/messages`
-
-Add additional routes (e.g. document upload, model inference) beside this structure as new features are implemented.
 
 ## Precompute corpus for fast demos
 
@@ -97,14 +120,14 @@ then query it via pgvector during inference.
 ### 1) Where to keep files locally
 
 - Legal PDFs (Constitution, IPC, CrPC, etc.): `CiteAI/corpus/legal_pdfs/`
-- Keep raw downloaded datasets under `CiteAI/corpus/datasets/` (optional)
+- Bundled baseline material lives in `backend/resources/corpus/`.
 
 ### 2) Apply schema + install dependencies
 
 ```bash
 cd backend
 pip install -r requirements.txt
-flask db upgrade
+python init_db.py
 ```
 
 ### 3) Preload Hugging Face corpus

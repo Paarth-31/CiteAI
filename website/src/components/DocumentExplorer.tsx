@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useEffect, useState } from 'react';
-import { apiFetch } from '../lib/api';
+import { apiFetch } from '../../lib/api';
 import { FileText } from 'lucide-react';
 
 interface Document {

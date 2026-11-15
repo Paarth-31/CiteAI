@@ -1,10 +1,8 @@
 import type { Metadata } from "next";
 import { Space_Grotesk, Space_Mono, DM_Sans } from "next/font/google";
 import "./globals.css";
-import VisualEditsMessenger from "../visual-edits/VisualEditsMessenger";
 import ErrorReporter from "@/components/ErrorReporter";
 import { Toaster } from "@/components/ui/sonner";
-import Script from "next/script";
 
 /* ─── Font Configuration ──────────────────────────────────────────── */
 
@@ -73,19 +71,8 @@ export default function RootLayout({
         "
       >
         <ErrorReporter />
-        <Script
-          src="https://slelguoygbfzlpylpxfs.supabase.co/storage/v1/object/public/scripts//route-messenger.js"
-          strategy="afterInteractive"
-          data-target-origin="*"
-          data-message-type="ROUTE_CHANGE"
-          data-include-search-params="true"
-          data-only-in-iframe="true"
-          data-debug="false"
-          data-custom-data='{"appName": "CiteAI", "version": "1.0.0", "greeting": "init"}'
-        />
         {children}
         <Toaster />
-        <VisualEditsMessenger />
       </body>
     </html>
   );

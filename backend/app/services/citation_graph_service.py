@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .paths import ensure_project_root
+from .legal_pipeline import build_citation_graph
 
 
 def generate_citation_graph(ocr_text: str, document_title: str) -> dict[str, Any]:
@@ -12,8 +12,4 @@ def generate_citation_graph(ocr_text: str, document_title: str) -> dict[str, Any
     Returns:
         {"nodes": [...], "edges": [...]}
     """
-    ensure_project_root()
-    from citation_graph_builder import CitationGraphBuilder
-
-    builder = CitationGraphBuilder.build_from_text(ocr_text, document_title)
-    return {"nodes": builder.nodes, "edges": builder.edges}
+    return build_citation_graph(document_title, ocr_text, [])

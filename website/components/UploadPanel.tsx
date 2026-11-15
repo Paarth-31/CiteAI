@@ -6,7 +6,7 @@ import { useAuth } from '@/components/contexts/AuthContext';
 import { apiFetch } from '@/lib/api';
 
 interface UploadPanelProps {
-  onUploadComplete?: (documentId: string) => void;
+  onUploadComplete?: (documentId: string, mode: 'analysis' | 'database') => void;
   onClose?: () => void;
 }
 
@@ -16,10 +16,12 @@ export default function UploadPanel({ onUploadComplete, onClose }: UploadPanelPr
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisStep, setAnalysisStep] = useState<'extracting' | 'analyzing' | 'validating' | 'complete'>('extracting');
+  const [analysisStep, setAnalysisStep] = useState<'extracting' | 'embedding' | 'scoring' | 'complete'>('extracting');
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [uploadedDocumentId, setUploadedDocumentId] = useState<string | null>(null);
+  const [uploadMode, setUploadMode] = useState<'analysis' | 'database'>('analysis');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (authLoading) {
@@ -77,10 +79,12 @@ export default function UploadPanel({ onUploadComplete, onClose }: UploadPanelPr
     if (file.type !== 'application/pdf') { setError('Please select a PDF file'); return; }
     if (file.size > 50 * 1024 * 1024) { setError('File size exceeds 50MB limit'); return; }
     setSelectedFile(file);
+    setUploadedDocumentId(null);
   };
 
-  const handleUpload = async () => {
+  const handleUpload = async (mode: 'analysis' | 'database') => {
     if (!selectedFile || !user) return;
+    setUploadMode(mode);
     setIsUploading(true); setError(null); setUploadProgress(0);
 
     const progressInterval = setInterval(() => {
@@ -88,38 +92,34 @@ export default function UploadPanel({ onUploadComplete, onClose }: UploadPanelPr
     }, 200);
 
     try {
-      const formData = new FormData();
-      formData.append('file', selectedFile);
-
-      // Step 1: Upload the file
-      const response = await apiFetch<{ document: { id: string }; message: string }>(`/api/documents/upload`, {
-        method: 'POST',
-        body: formData,
-      });
+      let docId = uploadedDocumentId;
+      if (!docId) {
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+        const response = await apiFetch<{ document: { id: string } }>(`/api/documents/upload`, {
+          method: 'POST', body: formData,
+        });
+        docId = response.document.id;
+        setUploadedDocumentId(docId);
+      }
 
       clearInterval(progressInterval);
       setUploadProgress(100);
       setIsUploading(false);
       setIsAnalyzing(true);
 
-      const docId = response.document.id;
-
-      // Step 2: Run OCR + citation graph extraction
       setAnalysisStep('extracting');
-      await apiFetch(`/api/ocr/process/${docId}`, { method: 'POST' });
+      await apiFetch(mode === 'database' ? `/api/documents/${docId}/add-to-db` : `/api/ocr/process/${docId}`, { method: 'POST' });
 
-      setAnalysisStep('analyzing');
-      await new Promise(r => setTimeout(r, 800));
-
-      setAnalysisStep('validating');
-      await new Promise(r => setTimeout(r, 500));
+      setAnalysisStep('embedding');
+      setAnalysisStep('scoring');
 
       setAnalysisStep('complete');
       setIsAnalyzing(false);
       setSuccess(true);
 
       setTimeout(() => {
-        if (onUploadComplete) onUploadComplete(docId);
+        if (onUploadComplete) onUploadComplete(docId, mode);
         if (onClose) onClose();
       }, 1200);
 
@@ -135,6 +135,7 @@ export default function UploadPanel({ onUploadComplete, onClose }: UploadPanelPr
 
   const handleRemoveFile = () => {
     setSelectedFile(null); setError(null); setSuccess(false); setUploadProgress(0);
+    setUploadedDocumentId(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -144,7 +145,7 @@ export default function UploadPanel({ onUploadComplete, onClose }: UploadPanelPr
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
 
-  const steps = ['extracting', 'analyzing', 'validating', 'complete'] as const;
+  const steps = ['extracting', 'embedding', 'scoring', 'complete'] as const;
 
   return (
     <div className="w-full max-w-2xl mx-auto">
@@ -183,10 +184,10 @@ export default function UploadPanel({ onUploadComplete, onClose }: UploadPanelPr
           <div className="space-y-6">
             <div className="text-center">
               <h2 className="text-2xl font-bold text-[#f0f4f8] mb-2 tracking-tight font-[var(--font-heading)]">
-                {success ? 'Upload Complete!' : isAnalyzing ? 'Analyzing Document...' : isUploading ? 'Uploading...' : 'Ready to Upload'}
+                {success ? 'Upload Complete!' : isAnalyzing ? 'Processing Document...' : isUploading ? 'Uploading...' : 'Ready to Upload'}
               </h2>
               <p className="text-[#6b7a8d] text-sm font-[var(--font-sans)]">
-                {success ? 'Document uploaded and analyzed successfully.' : isAnalyzing ? 'AI is mapping citation relationships.' : isUploading ? 'Uploading securely...' : 'Review your file before uploading.'}
+                {success ? (uploadMode === 'database' ? 'Document OCR and database indexing complete.' : 'Document uploaded and analyzed successfully.') : isAnalyzing ? 'OCR and embeddings are being processed.' : isUploading ? 'Uploading securely...' : 'Choose full analysis or database indexing without citations.'}
               </p>
             </div>
 
@@ -234,8 +235,8 @@ export default function UploadPanel({ onUploadComplete, onClose }: UploadPanelPr
                         </div>
                         <span className={`text-xs font-bold font-[var(--font-sans)] ${isCurrent ? 'text-[#f0f4f8]' : isDone ? 'text-[#c9d1dc]' : 'text-[#6b7a8d]'}`}>
                           {step === 'extracting' && 'Extracting text via OCR'}
-                          {step === 'analyzing' && 'Building citation graph'}
-                          {step === 'validating' && 'Validating sources'}
+                          {step === 'embedding' && 'Running sentence-transformer + InLegalBERT'}
+                          {step === 'scoring' && (uploadMode === 'database' ? 'Saving searchable database chunks' : 'Retrieving with pgvector and scoring')}
                           {step === 'complete' && 'Analysis complete!'}
                         </span>
                       </div>
@@ -247,7 +248,7 @@ export default function UploadPanel({ onUploadComplete, onClose }: UploadPanelPr
               {success && (
                 <div className="mt-5 flex items-center gap-3 text-[#29b6f6] bg-[rgba(41,182,246,0.1)] border border-[rgba(41,182,246,0.2)] px-4 py-3.5 rounded-xl">
                   <Check size={18} strokeWidth={2.5} />
-                  <span className="text-sm font-bold font-[var(--font-sans)]">Document uploaded and mapped successfully.</span>
+                  <span className="text-sm font-bold font-[var(--font-sans)]">{uploadMode === 'database' ? 'Document added to local database without citation generation.' : 'Document uploaded and mapped successfully.'}</span>
                 </div>
               )}
             </div>
@@ -262,7 +263,8 @@ export default function UploadPanel({ onUploadComplete, onClose }: UploadPanelPr
             {!isUploading && !success && !isAnalyzing && (
               <div className="flex flex-col sm:flex-row gap-4 pt-2">
                 <button onClick={handleRemoveFile} className="flex-1 bg-transparent hover:bg-[#1e2433] text-[#f0f4f8] font-bold px-6 py-3.5 rounded-xl transition-all border border-[#242c3a] text-sm font-[var(--font-heading)]">Cancel</button>
-                <button onClick={handleUpload} className="flex-1 btn-primary justify-center py-3.5 text-sm">Confirm Upload</button>
+                <button onClick={() => handleUpload('database')} className="flex-1 btn-secondary justify-center py-3.5 text-sm">Add to db</button>
+                <button onClick={() => handleUpload('analysis')} className="flex-1 btn-primary justify-center py-3.5 text-sm">Analyze document</button>
               </div>
             )}
           </div>

@@ -9,7 +9,7 @@ Fixes in this version:
      does not abort the entire transaction and block the rest.
   2. pgvector must succeed before create_all — we abort with a clear
      message if it is not installed instead of silently continuing.
-  3. PROCESSED_DIR path corrected to lexai/data/processed (not double-nested).
+  3. Baseline corpus is loaded from backend/resources/corpus/processed.
   4. db.engines compatibility for both Flask-SQLAlchemy 2.x and 3.x.
 """
 from __future__ import annotations
@@ -28,7 +28,7 @@ from app.models import BaselineCase, User
 # ── Paths ─────────────────────────────────────────────────────────────────────
 BACKEND_ROOT  = Path(__file__).resolve().parent      # .../CiteAI/backend/
 CITEAI_ROOT   = BACKEND_ROOT.parent                  # .../CiteAI/
-PROCESSED_DIR = CITEAI_ROOT / "lexai" / "data" / "processed"
+PROCESSED_DIR = BACKEND_ROOT / "resources" / "corpus" / "processed"
 
 app = create_app()
 
@@ -162,7 +162,7 @@ def _clean_title(raw: str) -> str:
 def seed_baseline_cases() -> None:
     if not PROCESSED_DIR.exists():
         print(f"  WARNING: {PROCESSED_DIR} not found — skipping.")
-        print(f"  Expected: CiteAI/lexai/data/processed/")
+        print(f"  Expected: backend/resources/corpus/processed/")
         return
 
     seeded = skipped = 0

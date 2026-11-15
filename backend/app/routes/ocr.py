@@ -10,15 +10,14 @@ import networkx as nx
 from flask import Blueprint, current_app, jsonify, request
 from flask_jwt_extended import current_user, jwt_required
 
-from ..extensions import db
+from ..extensions import db, model_registry
 from ..models import BaselineCase, Citation, Document
-from ..services.citation_graph_service import generate_citation_graph
 from ..services.document_pipeline import (
     persist_graph_citations,
     run_internal_analysis_from_text,
     run_ocr_and_graph,
 )
-from ..services.paths import ensure_project_root
+from ..services.legal_pipeline import answer_document_question, build_citation_graph
 
 bp = Blueprint("ocr", __name__, url_prefix="/api/ocr")
 
@@ -43,7 +42,11 @@ def process_document(document_id: str):
         return jsonify({"error": "Document not found"}), HTTPStatus.NOT_FOUND
 
     force = request.args.get("force") in {"1", "true", "True", "yes", "on"}
-    if document.ocr_text and document.citation_graph and not force:
+    metadata = document.ocr_metadata or {}
+    complete = (document.ocr_text and document.citation_graph and document.sentence_embedding is not None
+                and document.legal_embedding is not None and document.internal_analysis
+                and "external_inference" in metadata and document.status == "completed")
+    if complete and not force:
         if document.status != "completed":
             document.update_status("completed")
             db.session.commit()
@@ -67,6 +70,7 @@ def process_document(document_id: str):
         })
     except Exception as e:  # noqa: BLE001
         current_app.logger.exception("OCR processing failed")
+        db.session.rollback()
         document.update_status("failed")
         db.session.commit()
         return jsonify({"error": f"OCR processing failed: {e}"}), HTTPStatus.INTERNAL_SERVER_ERROR
@@ -81,31 +85,30 @@ def query_document(document_id: str):
         return jsonify({"error": "Document not found"}), HTTPStatus.NOT_FOUND
 
     payload = request.get_json(silent=True) or {}
-    query = (payload.get("query") or "").strip()
+    raw_query = payload.get("query")
+    query = raw_query.strip() if isinstance(raw_query, str) else ""
     if not query:
         return jsonify({"error": "Query text is required"}), HTTPStatus.BAD_REQUEST
 
     try:
-        ensure_project_root()
-        from lexai.agents.query_pdf_rag_ocr import query_pdf_with_ocr, query_rag_from_text
-
         if document.ocr_text:
-            result = query_rag_from_text(document.ocr_text, query, document.title)
+            result = answer_document_question(document.ocr_text, query, document.title, model_registry)
         else:
-            file_path = get_document_file_path(document)
-            if file_path is None or not file_path.exists():
-                return jsonify({"error": "Document file not found"}), HTTPStatus.NOT_FOUND
-            result = query_pdf_with_ocr(str(file_path), query)
+            return jsonify({"error": "No OCR data available. Process the document first."}), HTTPStatus.BAD_REQUEST
 
         return jsonify({
             "success": True,
             "query": query,
             "answer": result.get("Answer", ""),
             "title": result.get("Title", document.title),
+            "passages": result.get("passages", []),
+            "mode": result.get("mode", "gemini"),
         })
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), HTTPStatus.SERVICE_UNAVAILABLE
     except Exception as e:  # noqa: BLE001
         current_app.logger.exception("Query processing failed")
-        return jsonify({"error": f"Query processing failed: {e}"}), HTTPStatus.INTERNAL_SERVER_ERROR
+        return jsonify({"error": "Document query failed"}), HTTPStatus.INTERNAL_SERVER_ERROR
 
 
 @bp.get("/citation-graph/<document_id>")
@@ -116,6 +119,9 @@ def get_citation_graph(document_id: str):
     if document is None:
         return jsonify({"error": "Document not found"}), HTTPStatus.NOT_FOUND
 
+    if (document.ocr_metadata or {}).get("processing_mode") == "database_only":
+        return jsonify({"error": "This document was indexed without citations. Run full analysis to build a graph."}), HTTPStatus.CONFLICT
+
     if document.citation_graph:
         return jsonify({"success": True, "graph": document.citation_graph})
 
@@ -123,7 +129,8 @@ def get_citation_graph(document_id: str):
         return jsonify({"error": "No OCR data available. Process the document first."}), HTTPStatus.BAD_REQUEST
 
     try:
-        citation_graph = generate_citation_graph(document.ocr_text, document.title)
+        metadata = document.ocr_metadata or {}
+        citation_graph = build_citation_graph(document.title, document.ocr_text, metadata.get("citations") or [])
         document.citation_graph = citation_graph
         persist_graph_citations(document, citation_graph)
         db.session.commit()
@@ -158,11 +165,15 @@ def get_citation_nodes(document_id: str):
 
     saved_by_graph_id: dict[str, Citation] = {}
     if document is not None:
+        if (document.ocr_metadata or {}).get("processing_mode") == "database_only":
+            return jsonify({"nodes": [], "edges": [], "total_nodes": 0,
+                            "filtered_nodes": 0, "showing_top": 0, "has_more": False})
         if not document.citation_graph:
             if not document.ocr_text:
                 return jsonify({"nodes": [], "edges": [], "total_nodes": 0}), HTTPStatus.OK
             try:
-                graph = generate_citation_graph(document.ocr_text, document.title)
+                metadata = document.ocr_metadata or {}
+                graph = build_citation_graph(document.title, document.ocr_text, metadata.get("citations") or [])
                 document.citation_graph = graph
                 persist_graph_citations(document, graph)
                 db.session.commit()
@@ -177,7 +188,7 @@ def get_citation_nodes(document_id: str):
         if case is None:
             return jsonify({"error": "Document not found"}), HTTPStatus.NOT_FOUND
         try:
-            graph = generate_citation_graph(case.full_text, case.title)
+            graph = build_citation_graph(case.title, case.full_text, case.citations or [])
         except Exception as e:
             current_app.logger.exception(f"Graph generation failed for {document_id}")
             return jsonify({"error": f"Graph generation failed: {e}"}), HTTPStatus.INTERNAL_SERVER_ERROR

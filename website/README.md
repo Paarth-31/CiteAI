@@ -34,3 +34,26 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Backend connection
+
+The frontend talks directly to Flask for local data and document analysis.
+The separate Indian Kanoon option uses its existing Next.js proxy. Copy `.env.example` to
+`.env.local` and point `NEXT_PUBLIC_API_BASE_URL` at the running backend:
+
+```bash
+cp .env.example .env.local
+npm install
+npm run dev
+```
+
+The backend must be running at the configured URL. Uploading a PDF calls
+`POST /api/documents/upload` first. **Analyze document** then runs the full
+OCR, graph, embedding, internal review and retrieval pipeline. **Add to db**
+instead runs OCR and stores searchable text plus pgvector chunks without
+generating citations. Failed processing can be retried without uploading the
+same PDF again.
+
+Search defaults to the local PostgreSQL database. Indian Kanoon is a separate
+search-source option, using the existing Next.js proxy; switching sources does
+not change the local search index. Document chat uses Gemini Flash via Flask
+and shows the retrieved document passages alongside each answer.

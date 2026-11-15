@@ -4,10 +4,10 @@ const INDIAN_KANOON_API_TOKEN = 'd393d383ef7d0004e37c866904d87f8273026a16';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const docId = params.id;
+    const { id: docId } = await params;
 
     if (!docId) {
       return NextResponse.json(

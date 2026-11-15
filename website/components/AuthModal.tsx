@@ -38,7 +38,7 @@ export default function AuthModal() {
       } else if (authModalView === 'editProfile') {
         await updateProfile(formData.name);
       }
-    } catch (error) {
+    } catch {
       // Errors should be handled/displayed via AuthContext or a toast system
     } finally {
       setIsLoading(false);
@@ -135,7 +135,7 @@ export default function AuthModal() {
             </form>
 
             <p className="text-[#6b7a8d] text-sm text-center mt-8 font-[var(--font-sans)]">
-              Don't have an account?{' '}
+              Don&apos;t have an account?{' '}
               <button
                 onClick={switchToRegister}
                 className="text-[#29b6f6] hover:text-[#81d4fa] font-bold transition-colors underline-cyan"

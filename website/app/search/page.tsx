@@ -1,14 +1,21 @@
 "use client"
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable react-hooks/set-state-in-effect */
+/* eslint-disable react-hooks/immutability */
+
 import React, { useState, useEffect } from 'react';
 import { AuthProvider } from '@/components/contexts/AuthContext';
 import Navbar from '@/components/Navbar';
 import PrivacyBanner from '@/components/PrivacyBanner';
 import AuthModal from '@/components/AuthModal';
-import { Search, Loader2, FileText, ExternalLink, ChevronLeft, ChevronRight, Filter, Download, X, Calendar, Building2, FileCode, Tag, Users, Scale, Database } from 'lucide-react';
+import { Search, FileText, ExternalLink, ChevronLeft, ChevronRight, Filter, Download, X, Calendar, Building2, FileCode, Tag, Users, Scale, Database } from 'lucide-react';
 import { useDebounce } from '@/hooks/useDebounce';
+import { apiFetch } from '@/lib/api';
 
 interface SearchResult {
+  id?: string;
+  slug?: string;
   tid: number | string;
   title: string;
   headline?: string;
@@ -19,6 +26,8 @@ interface SearchResult {
   numcitedby?: number;
   citation?: string;
   docsize?: number;
+  type?: 'baseline' | 'document';
+  file_url?: string;
 }
 
 interface CategoryItem {
@@ -45,71 +54,57 @@ export default function SearchPage() {
   const [selectedDocument, setSelectedDocument] = useState<SearchResult | null>(null);
   const [documentDetails, setDocumentDetails] = useState<any>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [searchDomain, setSearchDomain] = useState<'kanoon'>('kanoon');
-  
+  const [searchMode, setSearchMode] = useState<'local' | 'kanoon'>('local');
+  const [hasMore, setHasMore] = useState(false);
+
   const debouncedSearchQuery = useDebounce(searchQuery, 500);
 
   useEffect(() => {
     if (debouncedSearchQuery.trim().length >= 3) {
-      performSearch(debouncedSearchQuery, currentPage);
+      performSearch(debouncedSearchQuery, currentPage, searchMode);
     } else if (debouncedSearchQuery.trim().length === 0) {
       setResults([]);
       setCategories([]);
       setFoundText('');
       setHasSearched(false);
       setError(null);
+      setHasMore(false);
     }
-  }, [debouncedSearchQuery, currentPage]);
+  }, [debouncedSearchQuery, currentPage, searchMode]);
 
-  const performSearch = async (query: string, page: number) => {
+  const performSearch = async (query: string, page: number, mode: 'local' | 'kanoon') => {
     try {
       setLoading(true);
       setError(null);
       setHasSearched(true);
 
-      const endpoint = '/api/indian-kanoon/search';
-
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          formInput: query,
-          pagenum: page,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch search results');
-      }
-
-      const data = await response.json();
-      
-      // Parse categories
-      if (data.categories && Array.isArray(data.categories)) {
-        const parsedCategories: Category[] = data.categories.map((cat: any) => ({
-          name: cat[0],
-          items: cat[1] || [],
-        }));
-        setCategories(parsedCategories);
-      }
-
-      // Set results
-      if (data.docs && Array.isArray(data.docs)) {
-        setResults(data.docs);
+      if (mode === 'local') {
+        const data = await apiFetch<{ results: Array<any>; count: number; has_more: boolean }>(
+          `/api/search?q=${encodeURIComponent(query)}&page=${page}`,
+        );
+        setResults((data.results || []).map((item) => ({
+          ...item, tid: item.id, headline: item.snippet, docsource: item.type,
+          citation: item.type === 'baseline' ? 'Baseline case' : 'Uploaded document',
+        })));
+        setCategories([]);
+        setFoundText(`${data.results?.length || 0} result${data.results?.length === 1 ? '' : 's'} on this page${data.has_more ? ' — more available' : ''}`);
+        setHasMore(data.has_more);
       } else {
-        setResults([]);
-      }
-
-      // Set found text
-      if (data.found) {
-        setFoundText(data.found);
+        const response = await fetch('/api/indian-kanoon/search', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ formInput: query, pagenum: page }),
+        });
+        if (!response.ok) throw new Error(`Indian Kanoon search failed (${response.status})`);
+        const data = await response.json();
+        const docs = Array.isArray(data.docs) ? data.docs : [];
+        setResults(docs);
+        setCategories(Array.isArray(data.categories) ? data.categories.map((cat: [string, CategoryItem[]]) => ({ name: cat[0], items: cat[1] || [] })) : []);
+        setFoundText(data.found || `${docs.length} results`);
+        setHasMore(docs.length >= 10);
       }
     } catch (err) {
       console.error('Search error:', err);
-      setError('Failed to search. Please try again.');
+      setError(err instanceof Error ? err.message : 'Failed to search. Please try again.');
       setResults([]);
       setCategories([]);
     } finally {
@@ -120,7 +115,7 @@ export default function SearchPage() {
   const handleCategoryClick = (categoryName: string, item: CategoryItem) => {
     setSearchQuery(item.value);
     setCurrentPage(0);
-    performSearch(item.formInput, 0);
+    performSearch(item.formInput, 0, searchMode);
   };
 
   const handlePageChange = (newPage: number) => {
@@ -133,36 +128,23 @@ export default function SearchPage() {
   const handleDocumentClick = async (result: SearchResult) => {
     setSelectedDocument(result);
     setLoadingDetails(true);
-    
-    try {
-      const endpoint = `/api/indian-kanoon/document/${result.tid}`;
 
-      const response = await fetch(endpoint);
-      if (response.ok) {
-        const data = await response.json();
-        setDocumentDetails(data);
+    try {
+      if (searchMode === 'kanoon') {
+        const response = await fetch(`/api/indian-kanoon/document/${encodeURIComponent(String(result.tid))}`);
+        if (!response.ok) throw new Error('Indian Kanoon document unavailable');
+        setDocumentDetails(await response.json());
+      } else if (result.slug) {
+        setDocumentDetails(await apiFetch(`/api/search/baseline/${encodeURIComponent(result.slug)}`));
+      } else {
+        const detail = await apiFetch<{ document: { ocrText?: string; fileUrl?: string } }>(`/api/documents/${encodeURIComponent(String(result.id))}`);
+        setDocumentDetails({ full_text: detail.document.ocrText, file_url: detail.document.fileUrl });
       }
     } catch (err) {
       console.error('Error fetching document details:', err);
     } finally {
       setLoadingDetails(false);
     }
-  };
-
-  const handleDownloadDocument = (docId: number | string, format: 'pdf' | 'txt') => {
-    if (format === 'pdf') {
-      window.open(`https://indiankanoon.org/origdoc/${docId}/`, '_blank', 'noopener,noreferrer');
-    } else {
-      window.open(`https://indiankanoon.org/doc/${docId}/`, '_blank', 'noopener,noreferrer');
-    }
-  };
-
-  const handleDomainChange = (domain: 'kanoon') => {
-    setSearchDomain(domain);
-    setSearchQuery('');
-    setResults([]);
-    setCategories([]);
-    setHasSearched(false);
   };
 
   const stripHtmlTags = (html: string) => {
@@ -199,14 +181,20 @@ export default function SearchPage() {
                 </div>
                 <div>
                   <h1 className="text-2xl sm:text-3xl font-bold text-[#f0f4f8] font-[var(--font-heading)] tracking-tight mb-1">
-                    Global Search
+                    Legal Search
                   </h1>
                   <p className="text-[#6b7a8d] text-sm font-[var(--font-sans)]">
-                    Search through the comprehensive legal database for cases, judgments, and documents.
+                    Search your local PostgreSQL library, or switch to Indian Kanoon.
                   </p>
                 </div>
               </div>
 
+              <div className="flex gap-2 mb-5" role="group" aria-label="Search source">
+                <button onClick={() => { setSearchMode('local'); setCurrentPage(0); setResults([]); setCategories([]); }}
+                  className={`px-4 py-2 rounded-lg text-sm ${searchMode === 'local' ? 'bg-[#29b6f6] text-[#050a0e]' : 'bg-[#1e2433] text-[#c9d1dc]'}`}>Local PostgreSQL</button>
+                <button onClick={() => { setSearchMode('kanoon'); setCurrentPage(0); setResults([]); setCategories([]); }}
+                  className={`px-4 py-2 rounded-lg text-sm ${searchMode === 'kanoon' ? 'bg-[#29b6f6] text-[#050a0e]' : 'bg-[#1e2433] text-[#c9d1dc]'}`}>Indian Kanoon</button>
+              </div>
               {/* Search Input with Filter Button */}
               <div className="flex flex-col sm:flex-row gap-4">
                 <div className="relative flex-1">
@@ -216,22 +204,22 @@ export default function SearchPage() {
                   <input
                     type="text"
                     value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(0); }}
                     placeholder="Enter your search query (minimum 3 characters)..."
                     className="w-full bg-[#0b0e15] border border-[#242c3a] text-[#f0f4f8] placeholder-[#6b7a8d] rounded-2xl pl-12 pr-4 py-4 focus:outline-none focus:ring-1 focus:ring-[#29b6f6] focus:border-[#29b6f6] font-[var(--font-sans)] text-base transition-all shadow-inner"
                   />
                 </div>
-                <button
+                {searchMode === 'kanoon' && <button
                   onClick={() => setShowFilters(!showFilters)}
                   className={`px-6 py-4 rounded-2xl transition-colors flex items-center justify-center gap-2 font-[var(--font-heading)] font-bold text-sm tracking-wide shadow-soft border ${
-                    showFilters 
-                      ? 'bg-[rgba(41,182,246,0.1)] border-[rgba(41,182,246,0.3)] text-[#29b6f6] shadow-[0_0_15px_rgba(41,182,246,0.15)]' 
+                    showFilters
+                      ? 'bg-[rgba(41,182,246,0.1)] border-[rgba(41,182,246,0.3)] text-[#29b6f6] shadow-[0_0_15px_rgba(41,182,246,0.15)]'
                       : 'bg-[#161b25] border-[#242c3a] text-[#f0f4f8] hover:bg-[#1e2433]'
                   }`}
                 >
                   <Filter size={18} className={showFilters ? "text-[#29b6f6]" : "text-[#6b7a8d]"} />
                   <span className="hidden sm:inline">Filters</span>
-                </button>
+                </button>}
               </div>
 
               {/* Search Info */}
@@ -328,7 +316,7 @@ export default function SearchPage() {
                           <div className="absolute top-0 left-0 w-1 h-full bg-[#29b6f6] opacity-0 group-hover:opacity-100 transition-opacity"></div>
 
                           <div className="flex items-start justify-between gap-4 mb-4">
-                            <h3 
+                            <h3
                               className="text-lg font-bold text-[#f0f4f8] group-hover:text-[#29b6f6] transition-colors flex-1 line-clamp-2 cursor-pointer font-[var(--font-heading)] leading-snug"
                               onClick={() => handleDocumentClick(result)}
                             >
@@ -342,20 +330,20 @@ export default function SearchPage() {
                               >
                                 <FileCode size={18} />
                               </button>
-                              <button
-                                onClick={() => handleDownloadDocument(result.tid, 'pdf')}
+                              {searchMode === 'kanoon' && <button
+                                onClick={() => window.open(`https://indiankanoon.org/origdoc/${encodeURIComponent(String(result.tid))}/`, '_blank', 'noopener,noreferrer')}
                                 className="p-2 hover:bg-[#1e2433] hover:text-[#f0f4f8] rounded-lg transition-colors border border-transparent hover:border-[#242c3a]"
                                 title="Download PDF"
                               >
                                 <Download size={18} />
-                              </button>
-                              <button
-                                onClick={() => window.open(`https://indiankanoon.org/doc/${result.tid}/`, '_blank', 'noopener,noreferrer')}
+                              </button>}
+                              {searchMode === 'kanoon' && <button
+                                onClick={() => window.open(`https://indiankanoon.org/doc/${encodeURIComponent(String(result.tid))}/`, '_blank', 'noopener,noreferrer')}
                                 className="p-2 hover:bg-[#1e2433] hover:text-[#29b6f6] rounded-lg transition-colors border border-transparent hover:border-[#242c3a]"
                                 title="Open in Indian Kanoon"
                               >
                                 <ExternalLink size={18} />
-                              </button>
+                              </button>}
                             </div>
                           </div>
 
@@ -366,10 +354,7 @@ export default function SearchPage() {
                           )}
 
                           {result.headline && (
-                            <div 
-                              className="text-sm text-[#c9d1dc] line-clamp-3 mb-5 font-[var(--font-sans)] leading-relaxed bg-[#0b0e15] p-4 rounded-xl border border-[#242c3a]"
-                              dangerouslySetInnerHTML={{ __html: result.headline }}
-                            />
+                            <div className="text-sm text-[#c9d1dc] line-clamp-3 mb-5 font-[var(--font-sans)] leading-relaxed bg-[#0b0e15] p-4 rounded-xl border border-[#242c3a]">{stripHtmlTags(result.headline)}</div>
                           )}
 
                           <div className="flex flex-wrap items-center gap-2.5">
@@ -390,8 +375,8 @@ export default function SearchPage() {
                             )}
                             {result.numcites !== undefined && (
                               <span className={`text-[11px] px-3 py-1.5 rounded-lg font-[var(--font-mono)] tracking-wide font-bold border ${
-                                result.numcites > 0 
-                                  ? 'bg-[rgba(41,182,246,0.1)] border-[rgba(41,182,246,0.3)] text-[#29b6f6]' 
+                                result.numcites > 0
+                                  ? 'bg-[rgba(41,182,246,0.1)] border-[rgba(41,182,246,0.3)] text-[#29b6f6]'
                                   : 'bg-[#161b25] border-[#242c3a] text-[#6b7a8d]'
                               }`}>
                                 {result.numcites} citations
@@ -419,7 +404,7 @@ export default function SearchPage() {
 
                       <button
                         onClick={() => handlePageChange(currentPage + 1)}
-                        disabled={results.length < 10}
+                        disabled={!hasMore}
                         className="flex items-center gap-2 px-5 py-2.5 text-xs font-bold text-[#f0f4f8] bg-[#161b25] border border-[#242c3a] rounded-xl hover:bg-[#1e2433] disabled:opacity-50 disabled:cursor-not-allowed transition-all font-[var(--font-mono)] uppercase tracking-wider"
                       >
                         Next
@@ -436,7 +421,7 @@ export default function SearchPage() {
                       <Search className="text-[#6b7a8d]" size={32} />
                     </div>
                     <h3 className="text-2xl font-bold text-[#f0f4f8] mb-3 font-[var(--font-heading)] tracking-tight">
-                      Initiate Global Search
+                      Search legal documents
                     </h3>
                     <p className="text-[#6b7a8d] text-sm max-w-md mx-auto mb-8 font-[var(--font-sans)] leading-relaxed">
                       Query the universal database index. Access high-fidelity metadata, extract raw OCR documents, and download sources instantly.
@@ -466,7 +451,7 @@ export default function SearchPage() {
         {selectedDocument && (
           <div className="fixed inset-0 bg-[#050a0e]/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
             <div className="bg-[#0b0e15] rounded-3xl max-w-5xl w-full max-h-[90vh] overflow-hidden shadow-[0_8px_32px_rgba(0,0,0,0.8)] border border-[#242c3a] flex flex-col animate-fade-up">
-              
+
               {/* Modal Header */}
               <div className="bg-[#161b25] border-b border-[#242c3a] p-6 sm:px-8 flex items-start justify-between shrink-0">
                 <div className="flex-1 pr-4">
@@ -513,9 +498,8 @@ export default function SearchPage() {
 
                     {/* Raw Document Content */}
                     <div className="prose prose-sm max-w-none text-[#c9d1dc] font-[var(--font-sans)] leading-relaxed prose-headings:text-[#f0f4f8] prose-headings:font-[var(--font-heading)] prose-a:text-[#29b6f6] prose-strong:text-[#f0f4f8]">
-                      {documentDetails.doc && (
-                        <div dangerouslySetInnerHTML={{ __html: documentDetails.doc }} />
-                      )}
+                      {documentDetails.full_text && <div className="whitespace-pre-wrap">{documentDetails.full_text}</div>}
+                      {documentDetails.doc && <div className="whitespace-pre-wrap">{stripHtmlTags(documentDetails.doc)}</div>}
                     </div>
                   </div>
                 ) : (
@@ -529,25 +513,11 @@ export default function SearchPage() {
               {/* Modal Footer */}
               <div className="bg-[#161b25] border-t border-[#242c3a] p-6 sm:px-8 flex flex-col sm:flex-row gap-3 shrink-0">
                 <button
-                  onClick={() => handleDownloadDocument(selectedDocument.tid, 'pdf')}
-                  className="flex-1 btn-primary py-3 justify-center"
-                >
-                  <Download size={18} />
-                  Download PDF
-                </button>
-                <button
-                  onClick={() => handleDownloadDocument(selectedDocument.tid, 'txt')}
+                  onClick={() => navigator.clipboard?.writeText(documentDetails?.full_text || '')}
                   className="flex-1 bg-[#0b0e15] hover:bg-[#1e2433] text-[#f0f4f8] font-bold px-4 py-3 rounded-xl transition-all border border-[#242c3a] flex items-center justify-center gap-2 text-sm font-[var(--font-heading)]"
                 >
                   <FileText size={18} className="text-[#a78bfa]" />
-                  Raw Text
-                </button>
-                <button
-                  onClick={() => window.open(`https://indiankanoon.org/doc/${selectedDocument.tid}/`, '_blank', 'noopener,noreferrer')}
-                  className="flex-1 bg-[#0b0e15] hover:bg-[#1e2433] text-[#f0f4f8] font-bold px-4 py-3 rounded-xl transition-all border border-[#242c3a] flex items-center justify-center gap-2 text-sm font-[var(--font-heading)]"
-                >
-                  <ExternalLink size={18} className="text-[#34d399]" />
-                  Open Kanoon
+                  Copy Raw Text
                 </button>
               </div>
             </div>

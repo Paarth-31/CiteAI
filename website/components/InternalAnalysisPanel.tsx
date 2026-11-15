@@ -1,5 +1,8 @@
 "use client";
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable react-hooks/set-state-in-effect */
+
 import React, { useEffect, useState } from 'react';
 import { apiFetch } from '@/lib/api';
 import { Fingerprint, AlertTriangle } from 'lucide-react';
@@ -72,11 +75,14 @@ export default function InternalAnalysisPanel({ documentId }: InternalAnalysisPa
     );
   }
 
-  const coherenceScore = analysis?.['Final Report']?.['Coherence Score'] ?? null;
-  const claims: string[] = analysis?.Claims || [];
-  const contradictions: string[] = analysis?.Contradictions || analysis?.['Detected Contradictions'] || [];
-  const briefCommentary = analysis?.['Final Report']?.['Brief Commentary'] || analysis?.['Brief Commentary'] || '';
-  const keyFlows = analysis?.['Final Report']?.['Key Argument Flows'] || analysis?.['Key Argument Flows'] || [];
+  const coherenceScore = analysis?.coherence_score ?? analysis?.['Final Report']?.['Coherence Score'] ?? null;
+  const claims: string[] = analysis?.claims || analysis?.Claims || [];
+  const contradictions: string[] = analysis?.issues?.map((issue: { type?: string; severity?: string; explanation?: string; chunk_indices?: number[]; claim_indices?: number[] }) =>
+    `${issue.type || 'Review signal'} (${issue.severity || 'info'})${issue.explanation ? ` — ${issue.explanation}` : ''}${issue.chunk_indices?.length ? ` — chunks ${issue.chunk_indices.join(', ')}` : ''}${issue.claim_indices?.length ? ` — claims ${issue.claim_indices.map((n) => n + 1).join(', ')}` : ''}`
+  ) || analysis?.Contradictions || [];
+  const briefCommentary = analysis?.summary || analysis?.['Final Report']?.['Brief Commentary'] || analysis?.['Brief Commentary'] ||
+    `Examined ${analysis?.chunks_examined ?? 0} text chunk(s) for duplicate passages and numeric claim differences.`;
+  const keyFlows: string[] = analysis?.key_flows || analysis?.['Final Report']?.['Key Argument Flows'] || analysis?.['Key Argument Flows'] || [];
 
   return (
     <div className="glass-card rounded-2xl p-6 h-full flex flex-col overflow-hidden">
@@ -128,7 +134,7 @@ export default function InternalAnalysisPanel({ documentId }: InternalAnalysisPa
 
         <section className="px-2">
           <h4 className="text-[10px] font-bold text-[#29b6f6] mb-3 font-[var(--font-mono)] tracking-widest uppercase flex items-center gap-2">
-             <span className="w-1.5 h-1.5 rounded-full bg-[#29b6f6]"></span> VALIDATED CLAIMS <span className="bg-[#1e2433] text-[#f0f4f8] px-1.5 rounded ml-1">{claims.length}</span>
+             <span className="w-1.5 h-1.5 rounded-full bg-[#29b6f6]"></span> EXTRACTED CLAIMS <span className="bg-[#1e2433] text-[#f0f4f8] px-1.5 rounded ml-1">{claims.length}</span>
           </h4>
           {claims.length > 0 ? (
             <ul className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -139,7 +145,7 @@ export default function InternalAnalysisPanel({ documentId }: InternalAnalysisPa
               ))}
             </ul>
           ) : (
-            <p className="text-xs text-[#6b7a8d] italic">Zero claims verified.</p>
+            <p className="text-xs text-[#6b7a8d] italic">No claims extracted.</p>
           )}
           {claims.length > 10 && (
              <p className="text-[10px] text-[#6b7a8d] font-bold font-[var(--font-mono)] tracking-wider mt-3 pl-2">+ {claims.length - 10} ADDITIONAL CLAIMS OMITTED</p>
@@ -148,7 +154,7 @@ export default function InternalAnalysisPanel({ documentId }: InternalAnalysisPa
 
         <section className="px-2 pb-4">
           <h4 className="text-[10px] font-bold text-[#f43f5e] mb-3 font-[var(--font-mono)] tracking-widest uppercase flex items-center gap-2">
-             <span className="w-1.5 h-1.5 rounded-full bg-[#f43f5e] animate-pulse"></span> DETECTED LOGIC FAULTS <span className="bg-[#f43f5e]/20 text-[#f43f5e] px-1.5 rounded ml-1">{contradictions.length}</span>
+             <span className="w-1.5 h-1.5 rounded-full bg-[#f43f5e] animate-pulse"></span> REVIEW SIGNALS <span className="bg-[#f43f5e]/20 text-[#f43f5e] px-1.5 rounded ml-1">{contradictions.length}</span>
           </h4>
           {contradictions.length > 0 ? (
             <ul className="space-y-3">

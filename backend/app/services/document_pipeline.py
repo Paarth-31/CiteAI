@@ -1,12 +1,4 @@
-"""Single document processing pipeline.
-
-Flow:
-  1. OCR / text extract  (lexai.agents.ocr_agent.process_pdf)
-  2. Citation graph      (CitationGraphBuilder.build_from_text)
-  3. Persist Citation rows for graph nodes (positions + later scores)
-  4. Internal analysis uses cached OCR text — never re-runs OCR
-  5. External inference persists TRS / similarity onto Citation rows
-"""
+"""Persistence boundary for the canonical backend document pipeline."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -16,8 +8,10 @@ from flask import current_app
 
 from ..extensions import db
 from ..models import Citation, Document
-from .citation_graph_service import generate_citation_graph
-from .paths import ensure_project_root
+from .legal_pipeline import (
+    build_citation_graph, build_embedding_material, chunk_text, extract_pdf,
+    detailed_internal_analysis, internal_score, retrieve_and_score,
+)
 
 
 def _as_trs(value: Any) -> float | None:
@@ -107,7 +101,7 @@ def persist_inference_scores(
     top_k: int,
 ) -> None:
     """Save external-inference cases and overlay scores onto matching OCR citations."""
-    Citation.query.filter_by(document_id=document.id, source_model="legalbert").delete(
+    Citation.query.filter_by(document_id=document.id, source_model="legal-pipeline").delete(
         synchronize_session=False
     )
 
@@ -152,7 +146,7 @@ def persist_inference_scores(
                 year=year_val,
                 similarity_score=similarity,
                 trs_score=trs,
-                source_model="legalbert",
+                source_model="legal-pipeline",
                 evidence_json=evidence,
             )
         )
@@ -176,7 +170,7 @@ def cached_inference_payload(document: Document) -> dict[str, Any] | None:
     """Rebuild the frontend inference response from saved Citation rows."""
     meta = (document.ocr_metadata or {}).get("external_inference") or {}
     rows = (
-        Citation.query.filter_by(document_id=document.id, source_model="legalbert")
+        Citation.query.filter_by(document_id=document.id, source_model="legal-pipeline")
         .order_by(Citation.trs_score.desc().nullslast())
         .all()
     )
@@ -223,22 +217,32 @@ def invalidate_stale_results(document: Document) -> None:
     inference rows and internal analysis from the previous text are never
     served as if they came from the new one.
     """
-    Citation.query.filter_by(document_id=document.id, source_model="legalbert").delete(
+    Citation.query.filter_by(document_id=document.id, source_model="legal-pipeline").delete(
         synchronize_session=False
     )
     document.internal_analysis = None
 
 
-def run_ocr_and_graph(document: Document, file_path: Path, *, force: bool = False) -> dict[str, Any]:
-    """OCR + citation graph + persist graph citations. Does not run inference."""
-    ensure_project_root()
-    from lexai.agents.ocr_agent import process_pdf
-
+def run_document_pipeline(document: Document, file_path: Path, *, force: bool = False, top_k: int = 20) -> dict[str, Any]:
+    """Run every analysis stage exactly once and persist one coherent result."""
+    from ..extensions import model_registry
+    from ..models import CorpusChunk, CorpusDocument
     document.update_status("processing")
     db.session.commit()
-
-    ocr_result = process_pdf(str(file_path))
-    ocr_text = ocr_result.get("full_text") or ocr_result.get("raw_text") or ""
+    if document.ocr_text and not force and "citations" in (document.ocr_metadata or {}):
+        old = document.ocr_metadata or {}
+        ocr_result = {
+            "title": old.get("title") or document.title,
+            "full_text": document.ocr_text,
+            "pages": old.get("pages") or [],
+            "citations": old.get("citations") or [],
+            "articles": old.get("articles") or [],
+            "keywords": old.get("keywords") or [],
+            "stats": old.get("stats") or {},
+        }
+    else:
+        ocr_result = extract_pdf(file_path)
+    ocr_text = ocr_result["full_text"]
     citations = ocr_result.get("citations") or []
     articles = ocr_result.get("articles") or []
     keywords = ocr_result.get("keywords") or []
@@ -249,10 +253,25 @@ def run_ocr_and_graph(document: Document, file_path: Path, *, force: bool = Fals
         "num_keywords": len(keywords),
     }
 
-    citation_graph = generate_citation_graph(ocr_text, document.title)
+    citation_graph = build_citation_graph(ocr_result["title"], ocr_text, citations)
+    chunks = chunk_text(ocr_text)
+    embeddings = build_embedding_material(ocr_text, model_registry)
+    internal = detailed_internal_analysis(ocr_text, internal_score(chunks, model_registry))
+    try:
+        external = retrieve_and_score(
+            ocr_text, document.title, keywords, internal, model_registry, db.session,
+            CorpusChunk, CorpusDocument, top_k, owner_id=document.user_id,
+        )
+    except Exception as exc:  # corpus setup must not invalidate completed OCR artifacts
+        current_app.logger.warning("Corpus retrieval unavailable for %s: %s", document.id, exc)
+        external = {
+            "source": "pgvector-unavailable", "retrieved_cases": [],
+            "overall_external_coherence_score": 0.0,
+            "short_summary": "OCR, graph, embeddings, and internal analysis completed; corpus retrieval is not configured.",
+        }
 
     # If OCR is being re-run on a document that already has results, those
-    # results (legalbert inference rows + internal analysis) were computed
+    # results (external-inference rows + internal analysis) were computed
     # from the OLD text. Invalidate them before the new text/graph is
     # committed, or they would be served as if they matched the new text.
     if force and (document.ocr_text or document.internal_analysis):
@@ -260,14 +279,26 @@ def run_ocr_and_graph(document: Document, file_path: Path, *, force: bool = Fals
 
     document.ocr_text = ocr_text
     document.ocr_metadata = {
+        "schema_version": 1,
+        "title": ocr_result["title"],
         "citations": citations,
         "articles": articles,
         "keywords": keywords,
         "stats": stats,
         "page_count": stats.get("num_pages", 0),
+        "pages": ocr_result.get("pages", []),
+        "chunks": [{key: value for key, value in chunk.items() if key != "text"} for chunk in chunks],
+        "embedding": embeddings["metadata"],
     }
     document.citation_graph = citation_graph
+    document.sentence_embedding = embeddings["sentence_embedding"]
+    document.legal_embedding = embeddings["legal_embedding"]
+    document.internal_analysis = internal
     persist_graph_citations(document, citation_graph)
+    persist_inference_scores(
+        document, external["retrieved_cases"], overall=external["overall_external_coherence_score"],
+        short_summary=external["short_summary"], source=external["source"], top_k=top_k,
+    )
     document.update_status("completed")
     db.session.commit()
 
@@ -276,27 +307,78 @@ def run_ocr_and_graph(document: Document, file_path: Path, *, force: bool = Fals
         "num_nodes": len(citation_graph.get("nodes") or []),
         "num_edges": len(citation_graph.get("edges") or []),
         "num_citations_saved": len(citation_graph.get("nodes") or []),
+        "internal_analysis": internal,
+        "external_inference": external,
     }
 
 
+# Compatibility name used by the OCR route while clients migrate.
+run_ocr_and_graph = run_document_pipeline
+
+
 def run_internal_analysis_from_text(document: Document) -> dict[str, Any] | None:
-    """Compute internal coherence from cached OCR text and store it."""
+    """Recompute only the internal stage from cached canonical OCR text."""
     if not document.ocr_text:
         return None
     try:
-        ensure_project_root()
-        from lexai.agents.multi_model_internal_coherence_agent_light_pdf import (
-            run_internal_coherence_from_text,
-        )
-
-        analysis = run_internal_coherence_from_text(
-            document.ocr_text,
-            title=document.title,
-            file_name=document.title,
-        )
+        from ..extensions import model_registry
+        analysis = detailed_internal_analysis(document.ocr_text, internal_score(chunk_text(document.ocr_text), model_registry))
         document.internal_analysis = analysis
         db.session.commit()
         return analysis
     except Exception as exc:  # noqa: BLE001
         current_app.logger.exception("Internal analysis failed: %s", exc)
         return None
+
+
+def add_document_to_corpus(document: Document, file_path: Path) -> dict[str, Any]:
+    """OCR and index an owned PDF, deliberately skipping citation generation."""
+    from ..extensions import model_registry
+    from ..models import CorpusChunk, CorpusDocument
+
+    document.update_status("processing")
+    db.session.commit()
+    extracted = extract_pdf(file_path, include_citations=False)
+    text = extracted["full_text"]
+    pieces = chunk_text(text)
+    if not pieces:
+        raise ValueError("No text chunks could be indexed")
+    embeddings = build_embedding_material(text, model_registry)
+    sentence_model = model_registry.get_sentence_model()
+    vectors = sentence_model.encode([piece["text"] for piece in pieces], convert_to_numpy=True)
+
+    corpus = CorpusDocument.query.filter_by(source_type="manual", source_id=str(document.id)).one_or_none()
+    if corpus is None:
+        corpus = CorpusDocument(source_type="manual", source_id=str(document.id), domain="legal")
+        db.session.add(corpus)
+        db.session.flush()
+    else:
+        CorpusChunk.query.filter_by(corpus_document_id=corpus.id).delete(synchronize_session=False)
+    corpus.title = document.title
+    corpus.full_text = text
+    corpus.summary = None
+    corpus.keywords = extracted.get("keywords") or []
+    corpus.citations = []
+    corpus.metadata_json = {"owner_user_id": document.user_id, "document_id": str(document.id),
+                            "page_count": len(extracted.get("pages") or []), "embedding": embeddings["metadata"]}
+    for piece, vector in zip(pieces, vectors):
+        db.session.add(CorpusChunk(
+            corpus_document_id=corpus.id, chunk_index=piece["index"], chunk_text=piece["text"],
+            sentence_embedding=vector.tolist(),
+            metadata_json={"start_char": piece["start_char"], "end_char": piece["end_char"],
+                           "owner_user_id": document.user_id},
+        ))
+    document.ocr_text = text
+    document.ocr_metadata = {"schema_version": 1, "title": extracted["title"],
+                             "pages": extracted.get("pages") or [], "stats": extracted.get("stats") or {},
+                             "keywords": extracted.get("keywords") or [], "embedding": embeddings["metadata"],
+                             "processing_mode": "database_only", "corpus_document_id": str(corpus.id)}
+    document.sentence_embedding = embeddings["sentence_embedding"]
+    document.legal_embedding = embeddings["legal_embedding"]
+    document.citation_graph = None
+    document.internal_analysis = None
+    Citation.query.filter_by(document_id=document.id).delete(synchronize_session=False)
+    document.update_status("completed")
+    db.session.commit()
+    return {"document_id": str(document.id), "corpus_document_id": str(corpus.id),
+            "chunks_indexed": len(pieces), "pages_ocrd": len(extracted.get("pages") or [])}
