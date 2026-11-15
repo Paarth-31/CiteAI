@@ -22,6 +22,14 @@ def test_graph_has_citation_evidence():
     assert graph["edges"][0]["evidence"]["start_char"] == 0
 
 
+def test_graph_merges_citations_that_normalise_to_the_same_node():
+    text = "See (2005) 2 SCALE 33 and 2005 (2) SCALE 33."
+    graph = build_citation_graph("Judgment", text, ["(2005) 2 SCALE 33", "2005 (2) SCALE 33"])
+    ids = [node["id"] for node in graph["nodes"]]
+    assert len(ids) == len(set(ids)) == 2
+    assert len(graph["edges"]) == 1
+
+
 def test_local_query_returns_document_evidence_without_global_index():
     result = answer_from_text("Article 21 protects life and personal liberty.", "What protects liberty?", "Case")
     assert "Article 21" in result["Answer"]

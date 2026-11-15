@@ -208,7 +208,7 @@ def baseline_citation_nodes(slug: str):
 
     try:
         from ..services.citation_graph_service import generate_citation_graph
-        graph = generate_citation_graph(case.full_text, case.title)
+        graph = generate_citation_graph(case.full_text, case.title, case.citations or [])
     except Exception as exc:
         current_app.logger.exception("Citation graph generation failed for %s", slug)
         return jsonify({"error": f"Graph generation failed: {exc}"}), HTTPStatus.INTERNAL_SERVER_ERROR

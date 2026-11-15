@@ -219,11 +219,17 @@ def get_citation_nodes(document_id: str):
     for n in nodes:
         n["citation_count"] = citation_counts.get(n.get("id"), 0)
 
-    filtered = [n for n in nodes if n.get("citation_count", 0) >= min_citations]
-    if year_filter is not None:
-        filtered = [n for n in filtered if n.get("year") == year_filter]
+    # Every edge starts at the document node, which is never cited itself
+    # (in-degree 0). Keep it through filters and rank it first so the limit
+    # cannot drop it and leave only disconnected citation nodes.
+    def is_root(n):
+        return n.get("kind") == "document"
 
-    filtered.sort(key=lambda n: n.get("citation_count", 0), reverse=True)
+    filtered = [n for n in nodes if is_root(n) or n.get("citation_count", 0) >= min_citations]
+    if year_filter is not None:
+        filtered = [n for n in filtered if is_root(n) or n.get("year") == year_filter]
+
+    filtered.sort(key=lambda n: (is_root(n), n.get("citation_count", 0)), reverse=True)
     visible = filtered[:limit]
     visible_ids = {n.get("id") for n in visible}
 

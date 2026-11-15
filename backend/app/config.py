@@ -71,7 +71,9 @@ class BaseConfig:
     PROPAGATE_EXCEPTIONS       = True
 
     # ── File upload ───────────────────────────────────────────────────────────
-    UPLOAD_FOLDER       = os.getenv("UPLOAD_FOLDER", str(PROJECT_ROOT / "storage" / "uploads"))
+    # Resolve relative paths against backend/ so saving (cwd-relative) and
+    # serving (Flask resolves against the app package) use the same folder.
+    UPLOAD_FOLDER       = str(PROJECT_ROOT / os.getenv("UPLOAD_FOLDER", "storage/uploads"))
     MAX_CONTENT_LENGTH  = int(os.getenv("MAX_UPLOAD_SIZE_MB", "50")) * 1024 * 1024
 
     # ── CORS ──────────────────────────────────────────────────────────────────

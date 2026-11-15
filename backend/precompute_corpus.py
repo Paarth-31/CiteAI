@@ -18,6 +18,7 @@ Notes:
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -57,18 +58,30 @@ def _iter_hf_rows(dataset_name: str, split: str, limit: int | None):
 def _iter_pdf_rows(pdf_dir: Path):
     from app.services.legal_pipeline import extract_pdf
 
-    for pdf_file in sorted(pdf_dir.glob("*.pdf")):
+    if not pdf_dir.is_dir():
+        raise FileNotFoundError(f"PDF directory not found: {pdf_dir}")
+    # Match .pdf and .PDF alike; most bundled judgments use the upper-case suffix.
+    pdf_files = sorted(p for p in pdf_dir.iterdir() if p.is_file() and p.suffix.lower() == ".pdf")
+    print(f"Found {len(pdf_files)} PDF(s) in {pdf_dir}")
+    for pdf_file in pdf_files:
         try:
             extracted = extract_pdf(pdf_file)
             text = extracted["full_text"]
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - one bad PDF must not stop the run
+            print(f"  skipped {pdf_file.name}: {type(exc).__name__}: {exc}")
             continue
         if not text:
             continue
+        title = extracted["title"]
+        # extract_pdf falls back to the first text line when no "X v. Y" line
+        # exists; for bilingual statute PDFs that line is legacy-font Hindi
+        # mojibake, so use the file name instead.
+        if not re.search(r"\bv(?:s|\.)?(?:\s+|$)", title, re.I):
+            title = pdf_file.stem.replace("_", " ").replace("-", " ").strip().title()
         yield {
             "source_type": "local_pdf",
             "source_id": pdf_file.name,
-            "title": extracted["title"][:500],
+            "title": title[:500],
             "full_text": text,
             "summary": None,
             "keywords": extracted["keywords"][:40],

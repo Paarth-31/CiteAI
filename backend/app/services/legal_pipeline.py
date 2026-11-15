@@ -107,10 +107,14 @@ def build_citation_graph(title: str, text: str, citations: list[str]) -> dict[st
     source_id = node_id(title)
     nodes = [{"id": source_id, "title": title, "year": _first_year(text), "text": text[:240], "kind": "document"}]
     edges: list[dict[str, Any]] = []
+    seen = {source_id}
     for citation in citations:
         target_id = node_id(citation)
-        if target_id == source_id:
+        # "(2005) 2 SCALE 33" and "2005 (2) SCALE 33" normalise to one id; a
+        # repeated id would duplicate graph nodes, edges and Citation rows.
+        if target_id in seen:
             continue
+        seen.add(target_id)
         nodes.append({"id": target_id, "title": citation, "year": _first_year(citation), "text": "", "kind": "citation"})
         offset = text.find(citation)
         edges.append({"source": source_id, "target": target_id, "evidence": {"start_char": offset if offset >= 0 else None, "end_char": offset + len(citation) if offset >= 0 else None}})

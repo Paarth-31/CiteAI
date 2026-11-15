@@ -20,5 +20,19 @@ numpy>=1.26,<3
 scikit-learn>=1.4,<2
 datasets>=2.20,<4
 google-genai>=1,<2
+# Imported by app/routes/ocr.py and app/routes/search.py for graph layout.
+networkx>=3.1,<4
+
+# Intel macOS: torch 2.2.2 is the last x86_64 macOS wheel and was compiled
+# against NumPy 1.x, so NumPy 2 (and pandas/pyarrow builds that require it)
+# break every model call there.
+numpy<2; sys_platform == "darwin" and platform_machine == "x86_64"
+pandas<3; sys_platform == "darwin" and platform_machine == "x86_64"
+pyarrow<20; sys_platform == "darwin" and platform_machine == "x86_64"
+# law-ai/InLegalBERT ships only pytorch_model.bin; transformers>=4.50 refuses
+# to torch.load .bin weights unless torch>=2.6, which Intel macOS cannot get.
+transformers<4.50; sys_platform == "darwin" and platform_machine == "x86_64"
 
 pytest>=8,<9
+# Used by smoke_test.py.
+requests>=2.31,<3

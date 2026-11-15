@@ -29,6 +29,8 @@ share/python-wheels/
 MANIFEST
 
 # Virtual environments
+.venv*/
+.python-version
 myenv/
 myenv2/
 venv/
@@ -46,6 +48,11 @@ backend/instance/
 .env.*
 !.env.example
 !.env.*.example
+# Renamed/backup copies of env files (e.g. _env, _env.local) hold the same secrets.
+_env
+_env.*
+*.env.bak
+.envrc
 *.cfg
 !setup.cfg
 secrets.json
@@ -195,3 +202,11 @@ temp/
 *.tgz
 *.rar
 *.7z
+
+# =============================================================================
+# Local tooling
+# =============================================================================
+# Per-user Claude Code settings (shared .claude/settings.json may be committed)
+.claude/settings.local.json
+# Local docker-compose overrides
+docker-compose.override.yml
