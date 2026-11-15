@@ -306,7 +306,7 @@ def similar_documents(document_id: str):
     similar = (
         db.session.query(
             Document,
-            Document.legal_embedding.op("<=>")(doc.legal_embedding).label("distance"),
+            Document.legal_embedding.cosine_distance(doc.legal_embedding).label("distance"),
         )
         .filter(
             Document.id != doc.id,

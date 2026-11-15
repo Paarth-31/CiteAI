@@ -13,6 +13,7 @@ from flask_jwt_extended import (
 )
 
 from ..schemas.auth import user_to_dict
+from ..extensions import db
 from ..services.auth_service import authenticate_user, create_user, get_user_by_id
 
 bp = Blueprint("auth", __name__, url_prefix="/api/auth")
@@ -92,3 +93,15 @@ def current_user_profile():
 def logout():
     # Stateless JWT — frontend discards tokens on its side.
     return jsonify({"success": True}), HTTPStatus.OK
+
+
+@bp.put("/me")
+@jwt_required()
+def update_profile():
+    payload = request.get_json(silent=True) or {}
+    name = payload.get("name")
+    if not isinstance(name, str) or not 1 <= len(name.strip()) <= 120:
+        return jsonify({"error": "Name must contain 1 to 120 characters"}), HTTPStatus.BAD_REQUEST
+    current_user.name = name.strip()
+    db.session.commit()
+    return jsonify({"user": user_to_dict(current_user)})

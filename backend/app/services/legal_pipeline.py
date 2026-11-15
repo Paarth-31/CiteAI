@@ -203,7 +203,7 @@ def internal_score(chunks: list[dict[str, Any]], registry) -> dict[str, Any]:
 def retrieve_and_score(text: str, title: str, keywords: list[str], internal: dict[str, Any], registry, session, corpus_chunk, corpus_document, top_k: int, owner_id: str | None = None) -> dict[str, Any]:
     """Retrieve sentence-vector corpus chunks and compute one transparent TRS."""
     query = _normalise(registry.get_sentence_model().encode([text], convert_to_numpy=True)[0]).tolist()
-    distance = corpus_chunk.sentence_embedding.op("<=>")(query).label("distance")
+    distance = corpus_chunk.sentence_embedding.cosine_distance(query).label("distance")
     from sqlalchemy import or_
     query_rows = (session.query(corpus_chunk, corpus_document, distance)
             .join(corpus_document, corpus_chunk.corpus_document_id == corpus_document.id)
@@ -272,13 +272,22 @@ def _gemini_text(prompt: str, *, json_response: bool = False) -> str:
     if not key:
         raise RuntimeError("GEMINI_API_KEY is not configured")
     from google import genai
-    client = genai.Client(api_key=key)
+    client = genai.Client(api_key=key, http_options={"timeout": 60000})
     config = {"temperature": 0.1, "max_output_tokens": 1800}
     if json_response:
         config["response_mime_type"] = "application/json"
-    response = client.models.generate_content(
-        model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"), contents=prompt, config=config,
-    )
+        # Gemini 2.5 Flash otherwise spends most of a small output budget on
+        # internal thinking and can return a truncated, unparsable JSON body.
+        config["thinking_config"] = {"thinking_budget": 0}
+        config["max_output_tokens"] = 3000
+    try:
+        response = client.models.generate_content(
+            model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"), contents=prompt, config=config,
+        )
+    finally:
+        client.close()
+    if response.candidates and str(response.candidates[0].finish_reason).endswith("MAX_TOKENS"):
+        raise RuntimeError("Gemini output exceeded the response budget; retry the analysis.")
     if not response.text:
         raise RuntimeError("Gemini returned no text")
     return response.text.strip()

@@ -86,7 +86,7 @@ def find_similar(document_id: str):
     except Exception as exc:
         current_app.logger.exception("Corpus inference failed: %s", exc)
         db.session.rollback()
-        results = {"legal": {"error": str(exc)}}
+        return jsonify({"error": "Corpus retrieval failed. Check the backend log and retry."}), HTTPStatus.SERVICE_UNAVAILABLE
 
     return jsonify({
         "document_id": document_id,

@@ -16,8 +16,6 @@ export default function UploadPanel({ onUploadComplete, onClose }: UploadPanelPr
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisStep, setAnalysisStep] = useState<'extracting' | 'embedding' | 'scoring' | 'complete'>('extracting');
-  const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [uploadedDocumentId, setUploadedDocumentId] = useState<string | null>(null);
@@ -85,11 +83,7 @@ export default function UploadPanel({ onUploadComplete, onClose }: UploadPanelPr
   const handleUpload = async (mode: 'analysis' | 'database') => {
     if (!selectedFile || !user) return;
     setUploadMode(mode);
-    setIsUploading(true); setError(null); setUploadProgress(0);
-
-    const progressInterval = setInterval(() => {
-      setUploadProgress(prev => { if (prev >= 90) { clearInterval(progressInterval); return 90; } return prev + 10; });
-    }, 200);
+    setIsUploading(true); setError(null);
 
     try {
       let docId = uploadedDocumentId;
@@ -103,18 +97,10 @@ export default function UploadPanel({ onUploadComplete, onClose }: UploadPanelPr
         setUploadedDocumentId(docId);
       }
 
-      clearInterval(progressInterval);
-      setUploadProgress(100);
       setIsUploading(false);
       setIsAnalyzing(true);
 
-      setAnalysisStep('extracting');
       await apiFetch(mode === 'database' ? `/api/documents/${docId}/add-to-db` : `/api/ocr/process/${docId}`, { method: 'POST' });
-
-      setAnalysisStep('embedding');
-      setAnalysisStep('scoring');
-
-      setAnalysisStep('complete');
       setIsAnalyzing(false);
       setSuccess(true);
 
@@ -124,17 +110,15 @@ export default function UploadPanel({ onUploadComplete, onClose }: UploadPanelPr
       }, 1200);
 
     } catch (err) {
-      clearInterval(progressInterval);
       console.error('Upload error:', err);
       setError(err instanceof Error ? err.message : 'Upload failed. Please try again.');
-      setUploadProgress(0);
       setIsUploading(false);
       setIsAnalyzing(false);
     }
   };
 
   const handleRemoveFile = () => {
-    setSelectedFile(null); setError(null); setSuccess(false); setUploadProgress(0);
+    setSelectedFile(null); setError(null); setSuccess(false);
     setUploadedDocumentId(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
@@ -145,7 +129,6 @@ export default function UploadPanel({ onUploadComplete, onClose }: UploadPanelPr
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
 
-  const steps = ['extracting', 'embedding', 'scoring', 'complete'] as const;
 
   return (
     <div className="w-full max-w-2xl mx-auto">
@@ -208,40 +191,13 @@ export default function UploadPanel({ onUploadComplete, onClose }: UploadPanelPr
               </div>
 
               {isUploading && (
-                <div className="mt-5">
-                  <div className="w-full bg-[#1e2433] rounded-full h-2 overflow-hidden border border-[#242c3a]">
-                    <div className="bg-[#29b6f6] h-full transition-all duration-300 ease-out shadow-[0_0_10px_rgba(41,182,246,0.5)]" style={{ width: `${uploadProgress}%` }} />
-                  </div>
-                  <div className="flex justify-between mt-2">
-                    <p className="text-[10px] font-[var(--font-mono)] font-bold text-[#6b7a8d] tracking-widest uppercase">Uploading</p>
-                    <p className="text-[10px] font-[var(--font-mono)] font-bold text-[#29b6f6]">{uploadProgress}%</p>
-                  </div>
-                </div>
+                <p role="status" className="mt-5 text-sm text-[#29b6f6] animate-pulse">Uploading PDF…</p>
               )}
 
               {isAnalyzing && (
-                <div className="mt-6 space-y-3">
-                  {steps.map((step) => {
-                    const currentIdx = steps.indexOf(analysisStep);
-                    const stepIdx = steps.indexOf(step);
-                    const isDone = stepIdx < currentIdx || analysisStep === 'complete';
-                    const isCurrent = step === analysisStep;
-                    return (
-                      <div key={step} className={`flex items-center gap-4 p-3 rounded-xl transition-all ${isCurrent ? 'bg-[rgba(41,182,246,0.05)] border border-[rgba(41,182,246,0.15)]' : 'border border-transparent'}`}>
-                        <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${isDone ? 'bg-[#29b6f6] shadow-[0_0_10px_rgba(41,182,246,0.3)]' : isCurrent ? 'bg-[rgba(41,182,246,0.2)]' : 'bg-[#1e2433]'}`}>
-                          {isDone ? <Check size={12} strokeWidth={3} className="text-[#050a0e]" /> :
-                           isCurrent ? <div className="w-2.5 h-2.5 bg-[#29b6f6] rounded-full animate-ping" /> :
-                           <div className="w-2 h-2 bg-[#6b7a8d] rounded-full" />}
-                        </div>
-                        <span className={`text-xs font-bold font-[var(--font-sans)] ${isCurrent ? 'text-[#f0f4f8]' : isDone ? 'text-[#c9d1dc]' : 'text-[#6b7a8d]'}`}>
-                          {step === 'extracting' && 'Extracting text via OCR'}
-                          {step === 'embedding' && 'Running sentence-transformer + InLegalBERT'}
-                          {step === 'scoring' && (uploadMode === 'database' ? 'Saving searchable database chunks' : 'Retrieving with pgvector and scoring')}
-                          {step === 'complete' && 'Analysis complete!'}
-                        </span>
-                      </div>
-                    );
-                  })}
+                <div role="status" className="mt-6 space-y-3 text-sm text-[#c9d1dc]">
+                  <p className="text-[#29b6f6] animate-pulse">{uploadMode === 'database' ? 'Extracting text and indexing database chunks…' : 'Running OCR, embeddings, analysis and retrieval…'}</p>
+                  <p>The first document can take longer while models load. Keep this page open.</p>
                 </div>
               )}
 

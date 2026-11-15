@@ -76,6 +76,50 @@ export function clearTokens() {
     storage.removeItem(tokenKey('access'));
     storage.removeItem(tokenKey('refresh'));
   }
+  window.dispatchEvent(new Event('citeai:session-expired'));
+}
+
+async function fetchWithTimeout(path: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const abort = () => controller.abort(init.signal?.reason);
+  if (init.signal?.aborted) abort();
+  else init.signal?.addEventListener('abort', abort, { once: true });
+  const longRequest = /\/api\/(ocr|inference)\//.test(path) || path.endsWith('/add-to-db');
+  const timer = setTimeout(() => controller.abort(new DOMException('Request timed out. Please retry.', 'TimeoutError')), longRequest ? 300000 : 20000);
+  try {
+    return await fetch(`${API_BASE_URL}${path}`, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (error instanceof TypeError) throw new Error('Cannot reach the backend. Check that Flask is running and retry.');
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    init.signal?.removeEventListener('abort', abort);
+  }
+}
+
+let refreshInFlight: Promise<string | null> | null = null;
+
+async function renewAccessToken(): Promise<string | null> {
+  if (refreshInFlight) return refreshInFlight;
+  const refreshToken = getRefreshTokenValue();
+  if (!refreshToken) return null;
+  refreshInFlight = (async () => {
+    const response = await fetchWithTimeout('/api/auth/refresh', {
+      method: 'POST', headers: { Authorization: `Bearer ${refreshToken}` },
+    });
+    if (response.status === 401 || response.status === 422) {
+      if (getRefreshTokenValue() === refreshToken) clearTokens();
+      return null;
+    }
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || body.msg || 'Session renewal failed. Please retry.');
+    if (typeof body.accessToken !== 'string' || !body.accessToken) throw new Error('Invalid session renewal response.');
+    // A logout or another login during the request must not resurrect this session.
+    if (getRefreshTokenValue() !== refreshToken) return null;
+    storeTokens(body.accessToken, refreshToken, Boolean(localStorage.getItem('refresh_token')));
+    return body.accessToken as string;
+  })().finally(() => { refreshInFlight = null; });
+  return refreshInFlight;
 }
 
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -86,10 +130,22 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   const accessToken = getAccessToken();
   if (accessToken && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${accessToken}`);
 
-  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
+  let response = await fetchWithTimeout(path, { ...init, headers });
+  const canRefresh = !new Headers(init.headers).has('Authorization') && !/^\/api\/auth\/(login|register|refresh|logout)$/.test(path);
+  if (response.status === 401 && canRefresh && !init.signal?.aborted) {
+    // Another simultaneous request may already have renewed the token.
+    const currentToken = getAccessToken();
+    const renewed = currentToken && currentToken !== accessToken ? currentToken : await renewAccessToken();
+    if (renewed) {
+      headers.set('Authorization', `Bearer ${renewed}`);
+      response = await fetchWithTimeout(path, { ...init, headers });
+    } else {
+      throw new Error('Your session has expired. Please sign in again.');
+    }
+  }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload?.error || payload?.message || `Request failed (${response.status})`);
+    throw new Error(payload?.error || payload?.message || payload?.msg || `Request failed (${response.status})`);
   }
   return payload as T;
 }

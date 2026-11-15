@@ -78,3 +78,31 @@ def test_database_only_extraction_ocr_s_blank_pages_without_citations(monkeypatc
     assert result["articles"] == []
     assert result["pages"][1]["text"] == "Scanned evidence"
     assert "Scanned evidence" in result["full_text"]
+
+
+def test_corpus_distance_is_numeric_and_results_are_deduplicated():
+    from sqlalchemy import Float
+    from app.models import CorpusChunk, CorpusDocument
+
+    model = SimpleNamespace(encode=lambda texts, **kwargs: np.ones((len(texts), 384)))
+    registry = SimpleNamespace(get_sentence_model=lambda: model, sentence_model_name=lambda: "test")
+    document = SimpleNamespace(id="case-1", title="Privacy", full_text="privacy rights", keywords=[], metadata_json={})
+    chunk = SimpleNamespace(chunk_text="privacy rights")
+
+    class Session:
+        def query(self, *columns):
+            # A raw .op('<=>') retains VECTOR's decoder and crashes when the
+            # database returns the scalar distance. Exercise the real expression.
+            assert isinstance(columns[2].type, Float)
+            return self
+
+        def join(self, *args): return self
+        def filter(self, *args): return self
+        def order_by(self, *args): return self
+        def limit(self, *args): return self
+        def all(self): return [(chunk, document, 0.3), (chunk, document, 0.1)]
+
+    result = legal_pipeline.retrieve_and_score("privacy rights", "Test", [], {"coherence_score": 0.8},
+                                               registry, Session(), CorpusChunk, CorpusDocument, 5)
+    assert len(result["retrieved_cases"]) == 1
+    assert result["retrieved_cases"][0]["similarity_score"] == 0.9

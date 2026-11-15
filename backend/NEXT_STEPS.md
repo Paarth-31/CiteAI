@@ -33,9 +33,7 @@ npm ci
 ## Terminal 1: Flask
 
 ```bash
-cd /home/paarth/Projects/CiteAI/IML/CiteAI-latest/backend
-source .venv/bin/activate
-flask --app manage run --host 127.0.0.1 --port 8000
+bash /home/paarth/Projects/CiteAI/IML/CiteAI-latest/backend/start_server.sh
 ```
 
 ## Terminal 2: Next.js
@@ -56,7 +54,7 @@ curl -I http://127.0.0.1:3000/
 ```
 
 ```bash
-export CITEAI_EMAIL=you@example.com
+read -rp 'CiteAI email: ' CITEAI_EMAIL
 read -rsp 'CiteAI password: ' CITEAI_PASSWORD
 echo
 ```
@@ -69,10 +67,10 @@ curl -sS --fail-with-body -X POST "$API_BASE_URL/api/auth/register" \
 ```
 
 ```bash
-export ACCESS_TOKEN="$(curl -sS --fail-with-body -X POST "$API_BASE_URL/api/auth/login" \
+ACCESS_TOKEN="$(curl -sS --fail-with-body -X POST "$API_BASE_URL/api/auth/login" \
   -H 'Content-Type: application/json' \
-  -d "$(jq -nc --arg email "$CITEAI_EMAIL" --arg password "$CITEAI_PASSWORD" '{email:$email,password:$password}')" | jq -r '.accessToken')"
-test -n "$ACCESS_TOKEN"
+  -d "$(jq -nc --arg email "$CITEAI_EMAIL" --arg password "$CITEAI_PASSWORD" '{email:$email,password:$password}')" | jq -er '.accessToken | select(type == "string" and length > 0)')"
+export ACCESS_TOKEN
 curl -sS --fail-with-body -H "Authorization: Bearer $ACCESS_TOKEN" "$API_BASE_URL/api/auth/me" | jq .
 curl -sS --fail-with-body -H "Authorization: Bearer $ACCESS_TOKEN" "$API_BASE_URL/api/documents" | jq .
 ```
@@ -80,14 +78,23 @@ curl -sS --fail-with-body -H "Authorization: Bearer $ACCESS_TOKEN" "$API_BASE_UR
 ## Terminal 3: full analysis API test
 
 ```bash
+(
+set -euo pipefail
 cd /home/paarth/Projects/CiteAI/IML/CiteAI-latest/backend
+export API_BASE_URL=http://127.0.0.1:8000
+read -rp 'CiteAI email: ' CITEAI_EMAIL
+read -rsp 'CiteAI password: ' CITEAI_PASSWORD
+echo
+ACCESS_TOKEN="$(curl -sS --fail-with-body -X POST "$API_BASE_URL/api/auth/login" \
+  -H 'Content-Type: application/json' \
+  -d "$(jq -nc --arg email "$CITEAI_EMAIL" --arg password "$CITEAI_PASSWORD" '{email:$email,password:$password}')" | jq -er '.accessToken | select(type == "string" and length > 0)')"
+export ACCESS_TOKEN
+curl -sS --fail-with-body -H "Authorization: Bearer $ACCESS_TOKEN" "$API_BASE_URL/api/auth/me" | jq .
 export PDF_PATH=../corpus/legal_pdfs/S_P_Chengalvaraya_Naidu_Dead_By_vs_Jagannath_Dead_By_L_Rs_And_Others_on_27_October_1993.PDF
-export UPLOAD_JSON="$(curl -sS --fail-with-body -X POST "$API_BASE_URL/api/documents/upload" \
+UPLOAD_JSON="$(curl -sS --fail-with-body -X POST "$API_BASE_URL/api/documents/upload" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
   -F "file=@$PDF_PATH;type=application/pdf")"
-export DOCUMENT_ID="$(jq -r '.document.id' <<< "$UPLOAD_JSON")"
-test "$DOCUMENT_ID" != null
-test -n "$DOCUMENT_ID"
+DOCUMENT_ID="$(jq -er '.document.id | select(type == "string" and length > 0)' <<< "$UPLOAD_JSON")"
 
 curl -sS --fail-with-body -X POST "$API_BASE_URL/api/ocr/process/$DOCUMENT_ID" \
   -H "Authorization: Bearer $ACCESS_TOKEN" | jq '{success,document_id,num_nodes,num_edges,internal_analysis,external_inference}'
@@ -105,18 +112,29 @@ curl -sS --fail-with-body -H "Authorization: Bearer $ACCESS_TOKEN" \
 curl -sS --fail-with-body -X POST "$API_BASE_URL/api/ocr/query/$DOCUMENT_ID" \
   -H "Authorization: Bearer $ACCESS_TOKEN" -H 'Content-Type: application/json' \
   -d '{"query":"What legal principle does this document discuss?"}' | jq '{answer,passages,mode}'
+)
 ```
 
 ## Terminal 3: Add to db API test (separate upload, no citations)
 
 ```bash
+(
+set -euo pipefail
 cd /home/paarth/Projects/CiteAI/IML/CiteAI-latest/backend
-export DB_UPLOAD_JSON="$(curl -sS --fail-with-body -X POST "$API_BASE_URL/api/documents/upload" \
+export API_BASE_URL=http://127.0.0.1:8000
+read -rp 'CiteAI email: ' CITEAI_EMAIL
+read -rsp 'CiteAI password: ' CITEAI_PASSWORD
+echo
+ACCESS_TOKEN="$(curl -sS --fail-with-body -X POST "$API_BASE_URL/api/auth/login" \
+  -H 'Content-Type: application/json' \
+  -d "$(jq -nc --arg email "$CITEAI_EMAIL" --arg password "$CITEAI_PASSWORD" '{email:$email,password:$password}')" | jq -er '.accessToken | select(type == "string" and length > 0)')"
+export ACCESS_TOKEN
+curl -sS --fail-with-body -H "Authorization: Bearer $ACCESS_TOKEN" "$API_BASE_URL/api/auth/me" | jq .
+export PDF_PATH=../corpus/legal_pdfs/S_P_Chengalvaraya_Naidu_Dead_By_vs_Jagannath_Dead_By_L_Rs_And_Others_on_27_October_1993.PDF
+DB_UPLOAD_JSON="$(curl -sS --fail-with-body -X POST "$API_BASE_URL/api/documents/upload" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
   -F "file=@$PDF_PATH;type=application/pdf")"
-export DB_DOCUMENT_ID="$(jq -r '.document.id' <<< "$DB_UPLOAD_JSON")"
-test "$DB_DOCUMENT_ID" != null
-test -n "$DB_DOCUMENT_ID"
+DB_DOCUMENT_ID="$(jq -er '.document.id | select(type == "string" and length > 0)' <<< "$DB_UPLOAD_JSON")"
 
 curl -sS --fail-with-body -X POST "$API_BASE_URL/api/documents/$DB_DOCUMENT_ID/add-to-db" \
   -H "Authorization: Bearer $ACCESS_TOKEN" | jq .
@@ -126,6 +144,7 @@ curl -sS --fail-with-body -H "Authorization: Bearer $ACCESS_TOKEN" \
   "$API_BASE_URL/api/ocr/citation-nodes/$DB_DOCUMENT_ID" | jq '{total_nodes,nodes,edges}'
 curl -sS --fail-with-body -H "Authorization: Bearer $ACCESS_TOKEN" \
   "$API_BASE_URL/api/search?q=Chengalvaraya&page=0" | jq --arg id "$DB_DOCUMENT_ID" '{count,has_more,page,indexed:any(.results[]; .id == $id),results}'
+)
 ```
 
 ## Local checks

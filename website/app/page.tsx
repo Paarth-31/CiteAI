@@ -49,6 +49,7 @@ function HomePage() {
   const [selectedItems, setSelectedItems] = useState<SelectedItem[]>([]);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [loadingCitations, setLoadingCitations] = useState(false);
+  const [reprocessing, setReprocessing] = useState(false);
   const [viewMode, setViewMode] = useState<'citation' | 'chat' | 'internal' | 'external'>('citation');
   const [graphStats, setGraphStats] = useState<{
     totalNodes: number;
@@ -210,6 +211,21 @@ function HomePage() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const rerunAnalysis = async () => {
+    if (!selectedDocumentId || reprocessing) return;
+    setReprocessing(true);
+    try {
+      await apiFetch(`/api/ocr/process/${selectedDocumentId}?force=1`, { method: 'POST' });
+      await handleDocumentSelect(selectedDocumentId);
+      setViewMode('citation');
+      showToast({ message: 'Analysis updated', variant: 'success' });
+    } catch (error) {
+      showToast({ message: error instanceof Error ? error.message : 'Analysis failed', variant: 'error' });
+    } finally {
+      setReprocessing(false);
+    }
+  };
+
   // Document analysis workspace view
   if (selectedDocumentId) {
     return (
@@ -249,6 +265,9 @@ function HomePage() {
                   </button>
                 ))}
               </div>
+              <button onClick={rerunAnalysis} disabled={reprocessing} className="btn-secondary px-4 py-3 text-sm disabled:opacity-50">
+                {reprocessing ? 'Processing…' : 'Run full analysis'}
+              </button>
               <button
                 onClick={handleBackToUpload}
                 className="bg-[#29b6f6] hover:bg-[#03a9f4] text-[#050a0e] font-bold px-6 py-3 rounded-xl transition-all inline-flex items-center gap-2 text-sm shadow-[0_0_15px_rgba(41,182,246,0.25)]"
@@ -287,10 +306,10 @@ function HomePage() {
                   <ChatInterface key={selectedDocumentId} documentId={selectedDocumentId} />
                 )}
                 {viewMode === 'internal' && (
-                  <InternalAnalysisPanel documentId={selectedDocumentId} />
+                  <InternalAnalysisPanel key={selectedDocumentId} documentId={selectedDocumentId} />
                 )}
                 {viewMode === 'external' && (
-                  <ExternalInferencePanel documentId={selectedDocumentId} />
+                  <ExternalInferencePanel key={selectedDocumentId} documentId={selectedDocumentId} />
                 )}
               </div>
 
@@ -332,8 +351,9 @@ function HomePage() {
               citation graphs, and logic validation—into one seamless workspace.
             </p>
           </div>
-          <div className="mb-20 animate-fade-up relative z-20">
+          <div className={`mb-20 animate-fade-up relative z-20 ${user ? 'grid gap-6 lg:grid-cols-[1fr_320px]' : ''}`}>
             <UploadPanel onUploadComplete={handleUploadComplete} />
+            {user && <div className="max-h-[600px]"><DocumentExplorer onDocumentSelect={handleDocumentSelect} selectedDocumentId={null} /></div>}
           </div>
         </div>
       </div>
@@ -345,8 +365,13 @@ export default function Home() {
   return (
     <AuthProvider>
       <ToastProvider>
-        <HomePage />
+        <SessionWorkspace />
       </ToastProvider>
     </AuthProvider>
   );
+}
+
+function SessionWorkspace() {
+  const { user } = useAuth();
+  return <HomePage key={user?.id || 'guest'} />;
 }

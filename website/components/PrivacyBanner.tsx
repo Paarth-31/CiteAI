@@ -12,7 +12,7 @@ export default function PrivacyBanner() {
           <div className="flex items-center gap-2 text-[#f0f4f8]">
             <Lock size={14} className="text-[#29b6f6] flex-shrink-0" />
             <p className="text-[11px] sm:text-xs font-bold tracking-widest font-[var(--font-mono)] text-[#c9d1dc] uppercase">
-              100% Local Processing
+              Local document storage
             </p>
           </div>
 
@@ -23,15 +23,15 @@ export default function PrivacyBanner() {
           <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 text-[11px] sm:text-xs text-[#6b7a8d] font-[var(--font-sans)]">
             <div className="flex items-center gap-1.5">
               <Check size={14} className="text-[#29b6f6] flex-shrink-0" />
-              <span>Data stays on your machine</span>
+              <span>OCR and embeddings run locally</span>
             </div>
             <div className="flex items-center gap-1.5">
               <Check size={14} className="text-[#29b6f6] flex-shrink-0" />
-              <span>Secure processing</span>
+              <span>Gemini receives selected text for AI answers</span>
             </div>
             <div className="flex items-center gap-1.5">
               <Check size={14} className="text-[#29b6f6] flex-shrink-0" />
-              <span>Privacy guaranteed</span>
+              <span>External search is optional</span>
             </div>
           </div>
         </div>

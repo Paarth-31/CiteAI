@@ -257,18 +257,10 @@ def run_document_pipeline(document: Document, file_path: Path, *, force: bool = 
     chunks = chunk_text(ocr_text)
     embeddings = build_embedding_material(ocr_text, model_registry)
     internal = detailed_internal_analysis(ocr_text, internal_score(chunks, model_registry))
-    try:
-        external = retrieve_and_score(
-            ocr_text, document.title, keywords, internal, model_registry, db.session,
-            CorpusChunk, CorpusDocument, top_k, owner_id=document.user_id,
-        )
-    except Exception as exc:  # corpus setup must not invalidate completed OCR artifacts
-        current_app.logger.warning("Corpus retrieval unavailable for %s: %s", document.id, exc)
-        external = {
-            "source": "pgvector-unavailable", "retrieved_cases": [],
-            "overall_external_coherence_score": 0.0,
-            "short_summary": "OCR, graph, embeddings, and internal analysis completed; corpus retrieval is not configured.",
-        }
+    external = retrieve_and_score(
+        ocr_text, document.title, keywords, internal, model_registry, db.session,
+        CorpusChunk, CorpusDocument, top_k, owner_id=document.user_id,
+    )
 
     # If OCR is being re-run on a document that already has results, those
     # results (external-inference rows + internal analysis) were computed
@@ -349,7 +341,8 @@ def add_document_to_corpus(document: Document, file_path: Path) -> dict[str, Any
 
     corpus = CorpusDocument.query.filter_by(source_type="manual", source_id=str(document.id)).one_or_none()
     if corpus is None:
-        corpus = CorpusDocument(source_type="manual", source_id=str(document.id), domain="legal")
+        corpus = CorpusDocument(source_type="manual", source_id=str(document.id), domain="legal",
+                                title=document.title, full_text=text)
         db.session.add(corpus)
         db.session.flush()
     else:

@@ -44,7 +44,7 @@ The upload screen offers two paths after saving a PDF:
    .venv\Scripts\activate  # Windows PowerShell
    pip install -r requirements.txt
    python init_db.py
-   flask --app manage run --port 8000
+   bash start_server.sh
    ```
 
    The API will be available at `http://127.0.0.1:8000`.

@@ -28,8 +28,12 @@ class InLegalBERTEncoder:
         self.model_name = model_name
         self.device = device
         self.max_length = max_length
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModel.from_pretrained(model_name).to(device)
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=True)
+            self.model = AutoModel.from_pretrained(model_name, local_files_only=True).to(device)
+        except OSError:
+            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+            self.model = AutoModel.from_pretrained(model_name).to(device)
         self.model.eval()
 
     def encode(self, texts: list[str], batch_size: int = 8) -> np.ndarray:
@@ -82,7 +86,10 @@ class ModelRegistry:
                 return self._sentence_model
             from sentence_transformers import SentenceTransformer
             model_name = self._app.config.get("SENTENCE_MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2") if self._app else "sentence-transformers/all-MiniLM-L6-v2"
-            self._sentence_model = SentenceTransformer(model_name, device=self._resolve_device())
+            try:
+                self._sentence_model = SentenceTransformer(model_name, device=self._resolve_device(), local_files_only=True)
+            except OSError:
+                self._sentence_model = SentenceTransformer(model_name, device=self._resolve_device())
             return self._sentence_model
 
     # ── Helpers ────────────────────────────────────────────────────────────

@@ -15,12 +15,14 @@ export default function AuthModal() {
   });
   const [showEmailVerification, setShowEmailVerification] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   if (!authModalView) return null;
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsLoading(true);
+    setFormError(null);
     
     try {
       if (authModalView === 'signIn') {
@@ -36,10 +38,10 @@ export default function AuthModal() {
           setShowEmailVerification(true);
         }
       } else if (authModalView === 'editProfile') {
-        await updateProfile(formData.name);
+        await updateProfile(String(new FormData(e.currentTarget).get('profileName') || ''));
       }
-    } catch {
-      // Errors should be handled/displayed via AuthContext or a toast system
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Request failed. Please retry.');
     } finally {
       setIsLoading(false);
     }
@@ -72,6 +74,7 @@ export default function AuthModal() {
         </button>
 
         {/* Sign In View */}
+        {formError && <p role="alert" className="mb-4 text-sm text-[#f43f5e]">{formError}</p>}
         {authModalView === 'signIn' && (
           <div className="animate-fade-up">
             <h2 className="text-3xl font-bold text-[#f0f4f8] mb-8 font-[var(--font-heading)] tracking-tight">
@@ -268,8 +271,8 @@ export default function AuthModal() {
                 <label className={labelClasses}>Full Name</label>
                 <input
                   type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  name="profileName"
+                  defaultValue={user?.name || ''}
                   className={inputClasses}
                   placeholder="John Doe"
                   required

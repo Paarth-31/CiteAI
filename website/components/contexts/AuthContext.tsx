@@ -180,9 +180,8 @@ import {
   register as registerRequest,
   logout as logoutRequest,
   fetchCurrentUser,
-  refreshAccessToken,
 } from '@/lib/auth';
-import { getRefreshTokenValue } from '@/lib/api';
+import { apiFetch, getRefreshTokenValue } from '@/lib/api';
 
 interface User {
   id: string;
@@ -230,18 +229,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const response = await fetchCurrentUser();
       setUser(response.user ?? null);
     } catch {
-      // Access token expired — try refresh
-      const refreshed = await refreshAccessToken();
-      if (refreshed) {
-        try {
-          const response = await fetchCurrentUser();
-          setUser(response.user ?? null);
-        } catch {
-          setUser(null);
-        }
-      } else {
-        setUser(null);
-      }
+      // apiFetch renews expired access tokens once and preserves tokens on
+      // transient network failures, allowing a later retry.
+      setUser(null);
     } finally {
       setIsLoading(false);
     }
@@ -250,6 +240,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     void loadSession();
   }, [loadSession]);
+
+  useEffect(() => {
+    const expired = () => setUser(null);
+    window.addEventListener('citeai:session-expired', expired);
+    return () => window.removeEventListener('citeai:session-expired', expired);
+  }, []);
 
   const login = async (email: string, password: string, rememberMe: boolean) => {
     try {
@@ -261,7 +257,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       router.push("/");
     } catch (error) {
       console.error('Login failed', error);
-      toast.error("Invalid email or password.");
+      toast.error(error instanceof Error ? error.message : 'Sign-in failed. Please retry.');
       throw error;
     }
   };
@@ -291,7 +287,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const updateProfile = async (name: string) => {
-    void name;
+    const response = await apiFetch<{ user: User }>('/api/auth/me', {
+      method: 'PUT', body: JSON.stringify({ name }),
+    });
+    setUser(response.user);
     toast.success("Profile updated successfully!");
     setAuthModalView(null);
     await loadSession();
