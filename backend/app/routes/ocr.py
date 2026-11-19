@@ -17,7 +17,8 @@ from ..services.document_pipeline import (
     run_internal_analysis_from_text,
     run_ocr_and_graph,
 )
-from ..services.legal_pipeline import answer_document_question, build_citation_graph
+from ..services.legal_pipeline import (INTERNAL_ANALYSIS_VERSION, answer_document_question,
+                                       build_citation_graph, build_citation_evidence)
 
 bp = Blueprint("ocr", __name__, url_prefix="/api/ocr")
 
@@ -92,7 +93,11 @@ def query_document(document_id: str):
 
     try:
         if document.ocr_text:
-            result = answer_document_question(document.ocr_text, query, document.title, model_registry)
+            result = answer_document_question(
+                document.ocr_text, query, document.title, model_registry,
+                citation_graph=document.citation_graph,
+                history=payload.get("history") if isinstance(payload.get("history"), list) else [],
+            )
         else:
             return jsonify({"error": "No OCR data available. Process the document first."}), HTTPStatus.BAD_REQUEST
 
@@ -102,6 +107,9 @@ def query_document(document_id: str):
             "answer": result.get("Answer", ""),
             "title": result.get("Title", document.title),
             "passages": result.get("passages", []),
+            "citation_context": result.get("citation_context", []),
+            "cited_case_passages": result.get("cited_case_passages", []),
+            "citation_count": result.get("citation_count", 0),
             "mode": result.get("mode", "gemini"),
         })
     except RuntimeError as e:
@@ -150,6 +158,28 @@ def _citation_lookup(document: Document) -> dict[str, Citation]:
         if gid:
             by_graph_id[str(gid)] = row
     return by_graph_id
+
+
+@bp.get("/citation-context/<document_id>/<node_id>")
+@jwt_required()
+def get_citation_context(document_id: str, node_id: str):
+    """Return source evidence for a selected citation belonging to this user."""
+    document = Document.query.filter_by(id=document_id, user_id=str(current_user.id)).one_or_none()
+    if document is None:
+        return jsonify({"error": "Document not found"}), HTTPStatus.NOT_FOUND
+    if not document.ocr_text or not document.citation_graph:
+        return jsonify({"error": "Analyze the document before opening citation context"}), HTTPStatus.CONFLICT
+
+    graph = document.citation_graph
+    saved = _citation_lookup(document)
+    graph_id = next((gid for gid, row in saved.items() if str(row.id) == node_id), node_id)
+    node = next((item for item in graph.get("nodes", [])
+                 if item.get("id") == graph_id and item.get("kind") == "citation"), None)
+    if node is None:
+        return jsonify({"error": "Citation not found"}), HTTPStatus.NOT_FOUND
+
+    context = build_citation_evidence(document.title, document.ocr_text, graph, node, model_registry)
+    return jsonify({"success": True, "context": context})
 
 
 @bp.get("/citation-nodes/<document_id>")
@@ -273,6 +303,7 @@ def get_citation_nodes(document_id: str):
             "id": node_id,
             "graphId": gid,
             "title": n.get("title", "Unknown"),
+            "kind": n.get("kind", "citation"),
             "x": x_val,
             "y": y_val,
             "citations": n.get("citation_count", 0),
@@ -311,7 +342,8 @@ def get_internal_analysis(document_id: str):
 
     force = request.args.get("force") in {"1", "true", "True", "yes", "on"}
 
-    if document.internal_analysis and not force:
+    if (document.internal_analysis and not force
+            and document.internal_analysis.get("analysis_version") == INTERNAL_ANALYSIS_VERSION):
         return jsonify({"success": True, "analysis": document.internal_analysis})
 
     if not document.ocr_text:

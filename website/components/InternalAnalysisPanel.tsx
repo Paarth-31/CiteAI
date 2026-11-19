@@ -38,6 +38,20 @@ export default function InternalAnalysisPanel({ documentId }: InternalAnalysisPa
       .finally(() => setLoading(false));
   }, [documentId]);
 
+  const retryAnalysis = async () => {
+    if (!documentId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await apiFetch<{ analysis: AnalysisResult }>(`/api/ocr/internal-analysis/${documentId}?force=1`);
+      setAnalysis(response.analysis);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not retry the Gemini report');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (!documentId) {
     return (
       <div className="glass-card rounded-2xl p-6 h-full flex flex-col items-center justify-center text-center">
@@ -101,6 +115,11 @@ export default function InternalAnalysisPanel({ documentId }: InternalAnalysisPa
             </span>
           </div>
         )}
+        {analysis.analysis_mode === 'deterministic' && (
+          <button onClick={retryAnalysis} className="rounded-lg border border-[#29b6f6]/40 px-3 py-2 text-xs font-semibold text-[#29b6f6] hover:bg-[#29b6f6]/10">
+            Retry Gemini report
+          </button>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto scrollbar-thin space-y-6 pr-2">
@@ -128,7 +147,9 @@ export default function InternalAnalysisPanel({ documentId }: InternalAnalysisPa
               )}
             </ul>
           ) : (
-            <p className="text-xs text-[#6b7a8d] italic">No logical pipelines established.</p>
+            <p className="text-xs text-[#6b7a8d] italic">
+              {analysis.analysis_mode === 'deterministic' ? 'Gemini argument flows unavailable; deterministic review only.' : 'No argument flows extracted.'}
+            </p>
           )}
         </section>
 
@@ -145,7 +166,9 @@ export default function InternalAnalysisPanel({ documentId }: InternalAnalysisPa
               ))}
             </ul>
           ) : (
-            <p className="text-xs text-[#6b7a8d] italic">No claims extracted.</p>
+            <p className="text-xs text-[#6b7a8d] italic">
+              {analysis.analysis_mode === 'deterministic' ? 'Gemini claim extraction unavailable; deterministic review only.' : 'No claims extracted.'}
+            </p>
           )}
           {claims.length > 10 && (
              <p className="text-[10px] text-[#6b7a8d] font-bold font-[var(--font-mono)] tracking-wider mt-3 pl-2">+ {claims.length - 10} ADDITIONAL CLAIMS OMITTED</p>
@@ -165,7 +188,7 @@ export default function InternalAnalysisPanel({ documentId }: InternalAnalysisPa
                 </li>
               ))}
               {contradictions.length > 6 && (
-                <li className="text-[10px] text-[#6b7a8d] font-bold font-[var(--font-mono)] tracking-wider mt-2">+ {contradictions.length - 6} CRITICAL FAULTS OVERFLOW</li>
+                <li className="text-[10px] text-[#6b7a8d] font-bold font-[var(--font-mono)] tracking-wider mt-2">+ {contradictions.length - 6} MORE REVIEW SIGNALS</li>
               )}
             </ul>
           ) : (
@@ -174,8 +197,8 @@ export default function InternalAnalysisPanel({ documentId }: InternalAnalysisPa
                 <span className="text-[#10b981] font-bold text-lg leading-none">✓</span>
               </div>
               <div>
-                <p className="text-sm font-bold text-[#10b981] font-[var(--font-heading)]">Zero Contradictions Found</p>
-                <p className="text-xs text-[#10b981]/70 font-[var(--font-sans)] mt-0.5">The structural integrity of this document is sound.</p>
+                <p className="text-sm font-bold text-[#10b981] font-[var(--font-heading)]">No review signals found</p>
+                <p className="text-xs text-[#10b981]/70 font-[var(--font-sans)] mt-0.5">This automated check did not flag passages for review.</p>
               </div>
             </div>
           )}

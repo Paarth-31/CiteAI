@@ -1,13 +1,9 @@
-"use client"
+"use client";
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-/* eslint-disable react-hooks/set-state-in-effect */
-/* eslint-disable react-hooks/immutability */
-/* eslint-disable react-hooks/exhaustive-deps */
-
-import React, { useState, useEffect } from 'react';
-import { X, Sparkles } from 'lucide-react';
-import ResultCard from './ResultCard';
+import { useEffect, useState } from 'react';
+import { ExternalLink, FileText, Search, Sparkles, X } from 'lucide-react';
+import { apiFetch } from '@/lib/api';
+import { googlePdfSearchUrl } from '@/lib/citationSources';
 
 interface SelectedItem {
   id: string;
@@ -19,149 +15,147 @@ interface SelectedItem {
   similarityScore?: number | null;
 }
 
-interface AnalysisWorkspaceProps {
-  selectedItems: SelectedItem[];
-  onItemDeselect: (id: string) => void;
+interface CitationEvidence {
+  title: string;
+  source_title: string;
+  source: 'cited_judgment' | 'uploaded_document' | 'unavailable';
+  excerpt: string;
+  citation_excerpt: string;
+  article_refs: string[];
+  pdf_url: string | null;
 }
 
-export default function AnalysisWorkspace({ selectedItems, onItemDeselect }: AnalysisWorkspaceProps) {
-  const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState<any[]>([]);
+function EvidenceCard({ documentId, item }: { documentId: string; item: SelectedItem }) {
+  const [evidence, setEvidence] = useState<CitationEvidence | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-  if (selectedItems.length > 0) {
-    handleAnalyze();
-  } else {
-    setResults([]);
-  }
-}, [selectedItems]);
+    let active = true;
+    apiFetch<{ context: CitationEvidence }>(
+      `/api/ocr/citation-context/${encodeURIComponent(documentId)}/${encodeURIComponent(item.id)}`,
+    ).then(response => {
+      if (active) setEvidence(response.context);
+    }).catch(reason => {
+      if (active) setError(reason instanceof Error ? reason.message : 'Citation context unavailable');
+    }).finally(() => {
+      if (active) setLoading(false);
+    });
+    return () => { active = false; };
+  }, [documentId, item.id]);
 
-  const handleAnalyze = () => {
-  setResults(
-    selectedItems.map(item => {
-      const trsPct = item.trsScore != null ? Math.round(item.trsScore * 100) : (item.similarityScore != null ? Math.round(item.similarityScore * 100) : null);
-      const simPct = item.similarityScore != null ? Math.round(item.similarityScore * 100) : null;
-      return {
-        id: item.id,
-        sourceTitle: item.title,
-        metadata: {
-          year: item.year ?? null,
-          sourceType: 'Citation Node',
-          references: item.citations ?? 0,
-        },
-        risk: (trsPct != null && trsPct < 40 ? 'high' : trsPct != null && trsPct < 70 ? 'medium' : 'low') as 'high' | 'medium' | 'low',
-        sentiment: 'neutral' as const,
-        trs: trsPct,
-        explanation: simPct != null
-          ? `"${item.title}" is mapped in the citation graph with a saved similarity of ${simPct}%${trsPct != null ? ` and TRS of ${trsPct}%` : ''}. Open Global Scores to refresh retrieval.`
-          : `Selected citation node: "${item.title}". Run Global Scores to persist TRS / similarity for this source.`,
-        irac: null,
-      };
-    })
+  return (
+    <article className="glass-card rounded-2xl p-5 space-y-4">
+      <div>
+        <h3 className="text-base font-bold leading-snug text-[#f0f4f8]">{item.title}</h3>
+        <p className="mt-1 text-xs text-[#6b7a8d]">
+          Cited case{item.year ? ` · ${item.year}` : ''}{item.citations ? ` · ${item.citations} reference${item.citations === 1 ? '' : 's'}` : ''}
+        </p>
+      </div>
+
+      {loading ? (
+        <p className="text-sm text-[#9aabbf]">Loading the cited judgment…</p>
+      ) : error ? (
+        <p className="text-sm text-[#fda4af]">{error}</p>
+      ) : evidence ? (
+        <>
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-wider text-[#29b6f6]">
+              {evidence.source === 'cited_judgment' ? 'Passage from cited judgment' :
+                evidence.source === 'uploaded_document' ? 'Mention in uploaded document' : 'Source passage unavailable'}
+            </p>
+            {evidence.excerpt ? (
+              <blockquote className="mt-2 border-l-2 border-[#29b6f6] pl-3 text-sm leading-relaxed text-[#c9d1dc] whitespace-pre-wrap">
+                {evidence.excerpt}
+              </blockquote>
+            ) : (
+              <p className="mt-2 text-sm text-[#9aabbf]">No exact source passage could be retrieved for this citation.</p>
+            )}
+            {evidence.source === 'cited_judgment' && (
+              <p className="mt-2 text-xs text-[#6b7a8d]">Source: {evidence.source_title}</p>
+            )}
+          </div>
+
+          {evidence.article_refs.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {evidence.article_refs.map(article => (
+                <span key={article} className="rounded-md bg-[#29b6f6]/10 px-2 py-1 text-xs text-[#81d4fa]">{article}</span>
+              ))}
+            </div>
+          )}
+
+          {evidence.source === 'cited_judgment' && evidence.citation_excerpt && (
+            <details className="text-xs text-[#9aabbf]">
+              <summary className="cursor-pointer">How your uploaded PDF cites this case</summary>
+              <p className="mt-2 border-l border-[#a78bfa] pl-3 leading-relaxed">{evidence.citation_excerpt}</p>
+            </details>
+          )}
+        </>
+      ) : null}
+
+      {(item.trsScore != null || item.similarityScore != null) && (
+        <p className="text-xs text-[#9aabbf]">
+          {item.trsScore != null && `TRS ${Math.round(item.trsScore * 100)}%`}
+          {item.trsScore != null && item.similarityScore != null && ' · '}
+          {item.similarityScore != null && `Similarity ${Math.round(item.similarityScore * 100)}%`}
+        </p>
+      )}
+
+      <div className="flex flex-wrap gap-2 pt-2 border-t border-[#242c3a] text-xs">
+        {evidence?.pdf_url && (
+          <a href={evidence.pdf_url} target="_blank" rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-[#29b6f6] px-3 py-2 font-semibold text-[#050a0e]">
+            <FileText size={14} /> Open case PDF <ExternalLink size={12} />
+          </a>
+        )}
+        <a href={googlePdfSearchUrl(item.title)} target="_blank" rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-[#3b4a5e] px-3 py-2 text-[#c9d1dc] hover:text-white">
+          <Search size={14} /> Google PDF search <ExternalLink size={12} />
+        </a>
+      </div>
+    </article>
   );
-  setLoading(false);
-};
+}
 
-  const handleFeedback = (resultId: string, feedback: 'up' | 'down') => {
-    console.log(`Feedback for result ${resultId}: ${feedback}`);
-  };
-
+export default function AnalysisWorkspace({ documentId, selectedItems, onItemDeselect }: {
+  documentId: string;
+  selectedItems: SelectedItem[];
+  onItemDeselect: (id: string) => void;
+}) {
   return (
     <div className="h-full glass-card rounded-2xl p-6 overflow-hidden flex flex-col">
       <div className="mb-6">
         <h2 className="text-lg font-bold text-[#f0f4f8] flex items-center gap-2 font-[var(--font-heading)]">
-          <Sparkles size={20} className="text-[#29b6f6]" />
-          Workspace Analysis
+          <Sparkles size={20} className="text-[#29b6f6]" /> Workspace Analysis
         </h2>
         <p className="text-[#6b7a8d] text-xs mt-1.5 font-[var(--font-mono)] tracking-wider uppercase">
-          {loading ? 'Processing Insights...' : results.length > 0 ? `${results.length} Output Results` : 'Select context items'}
+          {selectedItems.length ? `${selectedItems.length} selected source${selectedItems.length === 1 ? '' : 's'}` : 'Select a citation node'}
         </p>
       </div>
 
       {selectedItems.length === 0 ? (
         <div className="flex-1 flex items-center justify-center border-2 border-dashed border-[#242c3a] rounded-xl bg-[#161b25]/50">
-          <div className="text-center text-[#6b7a8d] px-4">
-            <Sparkles size={36} className="mx-auto mb-4 opacity-40 text-[#29b6f6]" />
-            <p className="text-sm font-medium font-[var(--font-sans)]">No context selected</p>
-            <p className="text-xs mt-1 opacity-70">Click nodes in the network to add them here.</p>
-          </div>
+          <p className="text-sm text-[#6b7a8d] text-center px-4">Select a cited case in Source Network to read its source passage here.</p>
         </div>
       ) : (
-        <div className="flex-1 overflow-hidden flex flex-col">
-          {/* Selected Items */}
-          <div className="mb-6">
-            <h3 className="text-[#6b7a8d] text-xs font-bold mb-3 font-[var(--font-mono)] tracking-widest uppercase">
+        <div className="flex-1 overflow-y-auto space-y-5 pr-2 scrollbar-thin">
+          <div className="space-y-2">
+            <h3 className="text-[#6b7a8d] text-xs font-bold font-[var(--font-mono)] tracking-widest uppercase">
               Selected Sources ({selectedItems.length})
             </h3>
-            <div className="space-y-2 max-h-[150px] overflow-y-auto scrollbar-thin pr-2">
-              {selectedItems.map((item) => (
-                <div
-                  key={item.id}
-                  className="bg-[#1e2433] border border-[#242c3a] hover:border-[#29b6f6]/50 rounded-xl p-3 flex items-center justify-between group transition-colors"
-                >
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <span className="badge-cyan flex-shrink-0">
-                      {item.type}
-                    </span>
-                    <span className="text-[#e8edf2] text-sm font-medium truncate font-[var(--font-sans)]">{item.title}</span>
-                  </div>
-                  <button
-                    onClick={() => onItemDeselect(item.id)}
-                    className="text-[#6b7a8d] hover:text-[#f43f5e] transition-colors ml-3 flex-shrink-0 bg-[#161b25] hover:bg-[#f43f5e]/10 p-1.5 rounded-lg"
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-              ))}
-            </div>
+            {selectedItems.map(item => (
+              <div key={item.id} className="bg-[#1e2433] border border-[#242c3a] rounded-xl p-3 flex items-center justify-between gap-2">
+                <span className="text-[#e8edf2] text-sm font-medium truncate">{item.title}</span>
+                <button onClick={() => onItemDeselect(item.id)} aria-label={`Remove ${item.title}`}
+                  className="text-[#6b7a8d] hover:text-[#f43f5e] bg-[#161b25] p-1.5 rounded-lg">
+                  <X size={14} />
+                </button>
+              </div>
+            ))}
           </div>
-
-          {/* Loading State */}
-          {loading && (
-            <div className="flex-1 flex items-center justify-center">
-              <div className="text-center bg-[#1e2433]/50 p-8 rounded-2xl border border-[#242c3a]">
-                <div className="relative h-12 w-12 mx-auto mb-5">
-                  <div className="absolute inset-0 rounded-full border-2 border-[#242c3a]"></div>
-                  <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-[#29b6f6] animate-spin"></div>
-                </div>
-                <p className="text-[#e8edf2] text-sm font-bold mb-3 font-[var(--font-heading)]">Synthesizing Data...</p>
-                <div className="space-y-2 text-left inline-block">
-                  <div className="flex items-center gap-3">
-                    <div className="animate-pulse w-2 h-2 bg-[#29b6f6] rounded-full"></div>
-                    <span className="text-xs text-[#6b7a8d] font-[var(--font-mono)]">Cross-referencing sources</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="animate-pulse w-2 h-2 bg-[#81d4fa] rounded-full" style={{ animationDelay: '0.2s' }}></div>
-                    <span className="text-xs text-[#6b7a8d] font-[var(--font-mono)]">Evaluating logic frameworks</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="animate-pulse w-2 h-2 bg-[#1a6fa3] rounded-full" style={{ animationDelay: '0.4s' }}></div>
-                    <span className="text-xs text-[#6b7a8d] font-[var(--font-mono)]">Generating insights</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Results */}
-          {!loading && results.length > 0 && (
-            <div className="flex-1 overflow-y-auto space-y-4 pr-2 scrollbar-thin">
-              <div className="flex items-center justify-between mb-1 pt-2 border-t border-[#242c3a]">
-                <h3 className="text-[#6b7a8d] text-xs font-bold font-[var(--font-mono)] tracking-widest uppercase">
-                  Analysis Output
-                </h3>
-                <span className="badge-cyan">
-                  Complete
-                </span>
-              </div>
-              {results.map((result) => (
-                <ResultCard key={result.id} result={result} onFeedback={handleFeedback} />
-              ))}
-            </div>
-          )}
+          {selectedItems.map(item => <EvidenceCard key={item.id} documentId={documentId} item={item} />)}
         </div>
       )}
     </div>
   );
 }
-// this is a temp change

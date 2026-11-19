@@ -9,6 +9,7 @@ Endpoints:
 from __future__ import annotations
 
 import math
+import re
 from http import HTTPStatus
 
 import networkx as nx
@@ -21,6 +22,16 @@ from ..extensions import db
 from ..models import BaselineCase, Document
 
 bp = Blueprint("search", __name__, url_prefix="/api/search")
+
+
+def _display_title(case: BaselineCase) -> str:
+    if "SUPREME COURT" not in case.title.upper() and "HIGH COURT" not in case.title.upper():
+        return case.title
+    for line in case.full_text.splitlines()[:20]:
+        candidate = line.strip()
+        if 5 < len(candidate) <= 200 and re.search(r"\s(?:v\.?|vs\.?|versus)\s", candidate, re.I):
+            return candidate
+    return case.slug.replace("_", " ").title()
 
 
 # ── Global search ─────────────────────────────────────────────────────────────
@@ -86,7 +97,7 @@ def global_search():
         results.append({
             "id":        str(case.id),
             "slug":      case.slug,
-            "title":     case.title,
+            "title":     _display_title(case),
             "type":      "baseline",
             "rank":      float(rank),
             "snippet":   snippet,
@@ -165,7 +176,7 @@ def list_baseline_cases():
     return jsonify([{
         "id":       str(c.id),
         "slug":     c.slug,
-        "title":    c.title,
+        "title":    _display_title(c),
         "stats":    c.stats or {},
         "keywords": (c.keywords or [])[:8],
     } for c in cases])
@@ -183,7 +194,7 @@ def get_baseline_case(slug: str):
     return jsonify({
         "id":        str(case.id),
         "slug":      case.slug,
-        "title":     case.title,
+        "title":     _display_title(case),
         "full_text": case.full_text,
         "citations": case.citations or [],
         "articles":  case.articles  or [],

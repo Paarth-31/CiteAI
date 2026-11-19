@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Loader2, Bot, User } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { googlePdfSearchUrl } from '@/lib/citationSources';
 
 interface Message {
     id: string;
@@ -10,6 +11,8 @@ interface Message {
     content: string;
     timestamp: Date;
     passages?: Array<{ index: number; text: string; score: number }>;
+    citationContext?: Array<{ title: string; excerpt: string }>;
+    citedCasePassages?: Array<{ title: string; pdf_url: string; index: number; text: string }>;
 }
 
 interface ChatInterfaceProps {
@@ -21,12 +24,14 @@ export default function ChatInterface({ documentId }: ChatInterfaceProps) {
         {
             id: '1',
             role: 'assistant',
-            content: 'Initialize communication sequence. I am ready to contextualize and answer queries regarding your uploaded document.',
+            content: 'Ask about this uploaded document or the cases it cites. I will use the document passages and show the evidence behind my answer.',
             timestamp: new Date(),
         }
     ]);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
+    const [documentTitle, setDocumentTitle] = useState('Current document');
+    const [citationCount, setCitationCount] = useState(0);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     const scrollToBottom = () => {
@@ -36,6 +41,19 @@ export default function ChatInterface({ documentId }: ChatInterfaceProps) {
     useEffect(() => {
         scrollToBottom();
     }, [messages]);
+
+    useEffect(() => {
+        let active = true;
+        apiFetch<{ document: { title: string } }>(`/api/documents/${documentId}`)
+            .then(data => { if (active) setDocumentTitle(data.document.title); })
+            .catch(() => {});
+        apiFetch<{ graph: { nodes?: Array<{ kind?: string }> } }>(`/api/ocr/citation-graph/${documentId}`)
+            .then(data => {
+                if (active) setCitationCount((data.graph.nodes || []).filter(node => node.kind === 'citation').length);
+            })
+            .catch(() => {});
+        return () => { active = false; };
+    }, [documentId]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -59,9 +77,16 @@ export default function ChatInterface({ documentId }: ChatInterfaceProps) {
                 answer: string;
                 title: string;
                 passages?: Array<{ index: number; text: string; score: number }>;
+                citation_context?: Array<{ title: string; excerpt: string }>;
+                cited_case_passages?: Array<{ title: string; pdf_url: string; index: number; text: string }>;
+                citation_count?: number;
             }>(`/api/ocr/query/${documentId}`, {
                 method: 'POST',
-                body: JSON.stringify({ query: userMessage.content }),
+                body: JSON.stringify({
+                    query: userMessage.content,
+                    history: messages.filter(message => message.id !== '1').slice(-6)
+                        .map(message => ({ role: message.role, content: message.content })),
+                }),
             });
 
             const aiMessage: Message = {
@@ -70,7 +95,10 @@ export default function ChatInterface({ documentId }: ChatInterfaceProps) {
                 content: response.answer || 'Query processed, but no valid data generated. Please rephrase your input.',
                 timestamp: new Date(),
                 passages: response.passages,
+                citationContext: response.citation_context,
+                citedCasePassages: response.cited_case_passages,
             };
+            if (response.citation_count !== undefined) setCitationCount(response.citation_count);
             setMessages(prev => [...prev, aiMessage]);
         } catch (error) {
             console.error('Error querying document:', error);
@@ -101,7 +129,7 @@ export default function ChatInterface({ documentId }: ChatInterfaceProps) {
                     AI Query Agent
                 </h2>
                 <p className="text-[#6b7a8d] text-xs mt-2 font-[var(--font-mono)] uppercase tracking-widest">
-                    Context-Aware Document Analysis
+                    {documentTitle} · {citationCount} cited case{citationCount === 1 ? '' : 's'}
                 </p>
             </div>
 
@@ -133,6 +161,32 @@ export default function ChatInterface({ documentId }: ChatInterfaceProps) {
                                       <p key={passage.index} className="mt-2 border-l border-[#29b6f6] pl-2">
                                         [Passage {passage.index + 1}] {passage.text.slice(0, 300)}
                                       </p>
+                                    ))}
+                                  </details>
+                                )}
+                                {message.citationContext && message.citationContext.length > 0 && (
+                                  <details className="mt-3 text-xs text-[#a8b6c7]">
+                                    <summary className="cursor-pointer">Cited cases considered ({message.citationContext.length})</summary>
+                                    {message.citationContext.map((citation, index) => (
+                                      <div key={`${citation.title}-${index}`} className="mt-2 border-l border-[#a78bfa] pl-2">
+                                        <p className="font-semibold text-[#d8c7ff]">[Citation {index + 1}] {citation.title}</p>
+                                        <p className="mt-1">{citation.excerpt || 'No citing passage was located in this document.'}</p>
+                                        <a href={googlePdfSearchUrl(citation.title)} target="_blank" rel="noopener noreferrer"
+                                          className="mt-1 inline-block text-[#29b6f6] hover:underline">Find case PDF on Google</a>
+                                      </div>
+                                    ))}
+                                  </details>
+                                )}
+                                {message.citedCasePassages && message.citedCasePassages.length > 0 && (
+                                  <details className="mt-3 text-xs text-[#a8b6c7]">
+                                    <summary className="cursor-pointer">Full cited judgment passages ({message.citedCasePassages.length})</summary>
+                                    {message.citedCasePassages.map((passage, index) => (
+                                      <div key={`${passage.title}-${passage.index}`} className="mt-2 border-l border-[#34d399] pl-2">
+                                        <p className="font-semibold text-[#b8f2db]">[Cited Case Passage {index + 1}] {passage.title}</p>
+                                        <p className="mt-1">{passage.text.slice(0, 400)}</p>
+                                        <a href={passage.pdf_url} target="_blank" rel="noopener noreferrer"
+                                          className="mt-1 inline-block text-[#29b6f6] hover:underline">Open cited case PDF</a>
+                                      </div>
                                     ))}
                                   </details>
                                 )}

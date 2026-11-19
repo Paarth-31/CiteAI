@@ -7,6 +7,7 @@ import PrivacyBanner from '@/components/PrivacyBanner';
 import UploadPanel from '@/components/UploadPanel';
 import DocumentExplorer from '@/components/DocumentExplorer';
 import CitationGraph from '@/components/CitationGraph';
+import CitationSourceLinks from '@/components/CitationSourceLinks';
 import AnalysisWorkspace from '@/components/AnalysisWorkspace';
 import AuthModal from '@/components/AuthModal';
 import { Upload, Network, MessageSquare, Fingerprint, Zap, BarChart2 } from 'lucide-react';
@@ -21,6 +22,7 @@ import { ToastProvider, useToast } from '@/components/ToastProvider';
 interface CitationNode {
   id: string;
   title: string;
+  kind?: 'document' | 'citation';
   x: number;
   y: number;
   citations: number;
@@ -110,6 +112,7 @@ function HomePage() {
         response.nodes.map((n) => ({
           id: n.id,
           title: n.title,
+          kind: n.kind,
           x: n.x,
           y: n.y,
           citations: n.citations,
@@ -228,6 +231,9 @@ function HomePage() {
 
   // Document analysis workspace view
   if (selectedDocumentId) {
+    const activeCitation = [...selectedNodeIds].reverse()
+      .map(id => nodes.find(node => node.id === id))
+      .find(node => node?.kind === 'citation');
     return (
       <div className="min-h-screen bg-[#0f1117]">
         <Navbar />
@@ -293,13 +299,20 @@ function HomePage() {
                       <p className="text-[#29b6f6] font-mono animate-pulse uppercase">Mapping Sources...</p>
                     </div>
                   ) : (
-                    <CitationGraph
-                      nodes={nodes}
-                      edges={edges}
-                      onNodeSelect={handleNodeSelect}
-                      selectedNodeIds={selectedNodeIds}
-                      onNodePositionUpdate={handleNodePositionUpdate}
-                    />
+                    <>
+                      <CitationGraph
+                        nodes={nodes}
+                        edges={edges}
+                        onNodeSelect={handleNodeSelect}
+                        selectedNodeIds={selectedNodeIds}
+                        onNodePositionUpdate={handleNodePositionUpdate}
+                      />
+                      {activeCitation && (
+                        <div className="absolute bottom-3 right-3 z-40">
+                          <CitationSourceLinks key={activeCitation.id} title={activeCitation.title} />
+                        </div>
+                      )}
+                    </>
                   )
                 )}
                 {viewMode === 'chat' && (
@@ -316,6 +329,7 @@ function HomePage() {
               {/* Inspector details panel */}
               <div className="w-full lg:col-span-1 h-[500px] sm:h-[600px] lg:h-[calc(100vh-220px)] border border-[#242c3a] rounded-2xl overflow-hidden glass-card shadow-soft">
                 <AnalysisWorkspace
+                  documentId={selectedDocumentId}
                   selectedItems={selectedItems}
                   onItemDeselect={handleItemDeselect}
                 />

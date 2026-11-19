@@ -2,7 +2,7 @@
 
 This folder contains the Flask backend that powers authentication, document storage, citation management and chat persistence for the CiteAI platform.
 
-For the full end-to-end runbook, see [NEXT_STEPS.md](./NEXT_STEPS.md). The canonical execution path is [legal_pipeline.py](./app/services/legal_pipeline.py): OCR/text extraction → graph and embedding materialization → InLegalBERT and sentence-transformer inference → pgvector retrieval → internal analysis and transparent scoring.
+For startup commands, see [Bootup.md](../Bootup.md). The canonical execution path is [legal_pipeline.py](./app/services/legal_pipeline.py): OCR/text extraction → graph and embedding materialization → InLegalBERT and sentence-transformer inference → internal review → pgvector retrieval and transparent scoring.
 
 ## Prerequisites
 

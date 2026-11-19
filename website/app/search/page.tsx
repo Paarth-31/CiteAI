@@ -424,7 +424,7 @@ export default function SearchPage() {
                       Search legal documents
                     </h3>
                     <p className="text-[#6b7a8d] text-sm max-w-md mx-auto mb-8 font-[var(--font-sans)] leading-relaxed">
-                      Query the universal database index. Access high-fidelity metadata, extract raw OCR documents, and download sources instantly.
+                      Search indexed cases and your uploaded documents. Switch to Indian Kanoon for external results.
                     </p>
                     <div className="flex flex-wrap justify-center gap-4 text-xs font-bold text-[#c9d1dc] font-[var(--font-mono)] tracking-wider uppercase">
                       <div className="flex items-center gap-2 bg-[#0b0e15] border border-[#242c3a] px-3 py-1.5 rounded-lg">
